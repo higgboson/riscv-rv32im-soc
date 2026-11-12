@@ -45,8 +45,9 @@ wire        RegWriteM, MemWriteM;
 wire [ 1:0] ResultSrcM;
 wire [ 2:0] funct3M;
 // Writeback
-wire [31:0] ReadDataW, PCPlus4W, ResultW;
+wire [31:0] ReadDataW, LoadDataW, PCPlus4W, ResultW;
 wire [ 4:0] RdW;
+wire [ 2:0] funct3W;
 wire        RegWriteW;
 wire [ 1:0] ResultSrcW;
 
@@ -130,7 +131,7 @@ pl_reg_em plem (
     .RegWriteM(RegWriteM), .MemWriteM(MemWriteM), .ResultSrcM(ResultSrcM)
 );
 
-// MEMORY (data memory sits outside the CPU, ReadData comes back from it)
+// MEMORY (data memory sits outside the CPU, ReadData comes back from it as a whole word)
 assign Mem_WrAddr = ALUResultM;
 assign Mem_WrData = WriteDataM;
 assign MemWrite   = MemWriteM;
@@ -139,17 +140,20 @@ assign funct3     = funct3M;
 pl_reg_mw plmw (
     .clk(clk),
     .ALUResultM(ALUResultM), .ReadDataM(ReadData), .PCM(PCM),
-    .WriteDataM(WriteDataM), .RdM(RdM), .RegWriteM(RegWriteM), .ResultSrcM(ResultSrcM),
+    .WriteDataM(WriteDataM), .RdM(RdM), .funct3M(funct3M), .RegWriteM(RegWriteM), .ResultSrcM(ResultSrcM),
     .ALUResultW(ALUResultW), .ReadDataW(ReadDataW), .PCW(PCW),
-    .WriteDataW(WriteDataW), .RdW(RdW), .RegWriteW(RegWriteW), .ResultSrcW(ResultSrcW)
+    .WriteDataW(WriteDataW), .RdW(RdW), .funct3W(funct3W), .RegWriteW(RegWriteW), .ResultSrcW(ResultSrcW)
 );
 
 // WRITEBACK
+// memory returns a whole word; cut out the byte / half the load wanted
+load_extend    lext    (ReadDataW, funct3W, ALUResultW[1:0], LoadDataW);
+
 // 00 = ALU result, 01 = load data, 10 = PC + 4 (jal / jalr)
 // PC + 4 is rebuilt from PCW here instead of being carried through every stage,
 // which saves 4 x 32 flip-flops.
 adder          pcadd4w (PCW, 32'd4, PCPlus4W);
-mux3 #(32)     resultmux (ALUResultW, ReadDataW, PCPlus4W, ResultSrcW, ResultW);
+mux3 #(32)     resultmux (ALUResultW, LoadDataW, PCPlus4W, ResultSrcW, ResultW);
 assign Result = ResultW;
 
 endmodule

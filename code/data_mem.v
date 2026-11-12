@@ -1,8 +1,7 @@
-// data_mem.v - data memory with byte / half / word access, built to map onto block RAM
+// data_mem.v - data memory with byte / half / word stores, built to map onto block RAM
 //
-// funct3 comes from the instruction in the Memory stage:
-//   stores : 000 = SB, 001 = SH, 010 = SW
-//   loads  : 000 = LB, 001 = LH, 010 = LW, 100 = LBU, 101 = LHU
+// funct3 comes from the store in the Memory stage: 000 = SB, 001 = SH, 010 = SW.
+// Loads always read the whole word (see the end of this file).
 //
 // Read and write both happen on the FALLING edge, so it is a plain single-port block RAM.
 // Address and store data come from the EX/MEM register (stable from the rising edge), so they
@@ -82,26 +81,8 @@ always @(negedge clk) begin
     q[31:24] <= mem3[word_addr];
 end
 
-// Load: take the byte / half the instruction asked for from the word, then extend it
-reg [7:0]  rd_byte;
-reg [15:0] rd_half;
-
-always @(*) begin
-    case (byte_off)
-        2'b00:   rd_byte = q[ 7: 0];
-        2'b01:   rd_byte = q[15: 8];
-        2'b10:   rd_byte = q[23:16];
-        default: rd_byte = q[31:24];
-    endcase
-    rd_half = byte_off[1] ? q[31:16] : q[15:0];
-
-    case (funct3)
-        3'b000:  rd_data_mem = {{24{rd_byte[7]}},  rd_byte}; // lb
-        3'b001:  rd_data_mem = {{16{rd_half[15]}}, rd_half}; // lh
-        3'b100:  rd_data_mem = {24'b0, rd_byte};             // lbu
-        3'b101:  rd_data_mem = {16'b0, rd_half};             // lhu
-        default: rd_data_mem = q;                            // lw (don't care for non-loads)
-    endcase
-end
+// Loads return the whole word. Picking the byte / half and extending it is done later,
+// in Writeback (load_extend.v), where there is a full clock cycle for it.
+always @(*) rd_data_mem = q;
 
 endmodule
