@@ -1,0 +1,15 @@
+db/
+incremental_db/
+output_files/
+simulation/
+*.qws
+*.rpt
+*.bak
+*.summary
+*.smsg
+*.done
+verif/work/
+sim_build/
+sw/build/
+*.vcd
+__pycache__/
