@@ -20,11 +20,12 @@ wire [31:0] dmem_rdata, mmio_rdata;
 wire [ 7:0] leds;
 wire [31:0] tohost;
 wire        tohost_valid;
+wire [ 3:0] perf_events;
 
 riscv_cpu rvcpu    (clk, reset, PC, Instr,
                     MemWrite_rv32, DataAdr_rv32,
                     WriteData_rv32, ReadData, Result,
-                    funct3, PCW, ALUResultW, WriteDataW);
+                    funct3, PCW, ALUResultW, WriteDataW, perf_events);
 
 instr_mem instrmem (clk, PC, Instr);
 
@@ -32,7 +33,7 @@ instr_mem instrmem (clk, PC, Instr);
 wire is_mmio = (DataAdr[31:28] == 4'h1);
 
 data_mem  datamem  (clk, MemWrite & ~is_mmio, Store, DataAdr, WriteData, dmem_rdata);
-mmio      io       (clk, reset, MemWrite & is_mmio, DataAdr, WriteData,
+mmio      io       (clk, reset, MemWrite & is_mmio, DataAdr, WriteData, perf_events,
                     mmio_rdata, leds, tohost, tohost_valid);
 
 assign ReadData  = is_mmio ? mmio_rdata : dmem_rdata;

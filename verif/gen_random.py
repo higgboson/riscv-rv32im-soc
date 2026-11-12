@@ -14,6 +14,8 @@
 # The program is built to stress the pipeline: most instructions read registers written
 # just before them (forwarding), loads are followed by users (load-use stalls), and there
 # are branches, jal and jalr (flushes) and divides back to back (divide stalls).
+# Small loops (a backward branch taken a few times, then not taken) train the branch
+# predictor and then make it guess wrong on the last pass.
 #
 # Usage: python3 gen_random.py <seed> <num_instructions>
 
@@ -58,7 +60,8 @@ HALT = enc_j(0, 0)          # jal x0, 0 : jumps to itself forever
 
 
 def generate(n):
-    """Register use: x1..x29 random, x30 = jalr base, x31 = 0 (load/store base)."""
+    """Register use: x1..x27 random, x28 = loop counter, x30 = jalr base,
+    x31 = 0 (load/store base)."""
     prog = []
     recent = [1, 2, 3]
     targets = set()          # instruction indexes some branch / jump lands on
@@ -70,27 +73,28 @@ def generate(n):
         return random.randint(0, 29)
 
     def dst():
-        r = random.randint(1, 29)
+        r = random.randint(1, 27)
         recent.append(r)
         return r
 
     for r in range(1, 30):
         prog.append(enc_i(random.randint(-2048, 2047), 0, 0, r, 0x13))
 
-    for _ in range(n):
-        k = random.random()
+    def plain(k):
+        """one instruction that never changes the PC (k picks the kind)"""
+        out = []
         if k < 0.17:                                   # R-type ALU
             f3 = random.randint(0, 7)
             f7 = 0x20 if (f3 in (0, 5) and random.random() < 0.5) else 0
-            prog.append(enc_r(f7, src(), src(), f3, dst(), 0x33))
+            out.append(enc_r(f7, src(), src(), f3, dst(), 0x33))
         elif k < 0.27:                                 # M extension
             if random.random() < 0.3:
                 # load an awkward value first: 0, -1 or -2^31 (divide by zero, overflow)
                 r = dst()
-                prog.append(random.choice([enc_i(0, 0, 0, r, 0x13),
-                                           enc_i(-1, 0, 0, r, 0x13),
-                                           enc_u(0x80000, r, 0x37)]))
-            prog.append(enc_r(1, src(), src(), random.randint(0, 7), dst(), 0x33))
+                out.append(random.choice([enc_i(0, 0, 0, r, 0x13),
+                                          enc_i(-1, 0, 0, r, 0x13),
+                                          enc_u(0x80000, r, 0x37)]))
+            out.append(enc_r(1, src(), src(), random.randint(0, 7), dst(), 0x33))
         elif k < 0.42:                                 # I-type ALU
             f3 = random.randint(0, 7)
             if f3 == 1:
@@ -99,15 +103,21 @@ def generate(n):
                 imm = random.randint(0, 31) | (0x400 if random.random() < 0.5 else 0)
             else:
                 imm = random.randint(-2048, 2047)
-            prog.append(enc_i(imm, src(), f3, dst(), 0x13))
+            out.append(enc_i(imm, src(), f3, dst(), 0x13))
         elif k < 0.46:                                 # lui / auipc
-            prog.append(enc_u(random.randint(0, 0xFFFFF), dst(), random.choice([0x37, 0x17])))
+            out.append(enc_u(random.randint(0, 0xFFFFF), dst(), random.choice([0x37, 0x17])))
         elif k < 0.57:                                 # store, aligned, addresses 0..255
             f3 = random.choice([0, 1, 2])
-            prog.append(enc_s(random.randrange(0, 256, 1 << f3), src(), 31, f3))
-        elif k < 0.70:                                 # load, aligned, addresses 0..255
+            out.append(enc_s(random.randrange(0, 256, 1 << f3), src(), 31, f3))
+        else:                                          # load, aligned, addresses 0..255
             f3 = random.choice([0, 1, 2, 4, 5])
-            prog.append(enc_i(random.randrange(0, 256, 1 << (f3 & 3)), 31, f3, dst(), 0x03))
+            out.append(enc_i(random.randrange(0, 256, 1 << (f3 & 3)), 31, f3, dst(), 0x03))
+        return out
+
+    for _ in range(n):
+        k = random.random()
+        if k < 0.70:
+            prog.extend(plain(random.random() * 0.70))
         elif k < 0.85:                                 # branch, forward only so it always ends
             skip = random.randint(1, 3)
             targets.add(len(prog) + skip + 1)
@@ -116,6 +126,21 @@ def generate(n):
             skip = random.randint(0, 2)
             targets.add(len(prog) + skip + 1)
             prog.append(enc_j((skip + 1) * 4, random.choice([0, dst()])))
+        elif k < 0.93:
+            # loop: x28 = count; body; x28 -= 1; bne x28, x0, body
+            body = []
+            for _ in range(random.randint(1, 5)):
+                body += plain(random.random() * 0.70)
+            start = len(prog)
+            end = start + len(body) + 2               # index of the bne
+            if any(start < t <= end for t in targets):
+                # an earlier forward jump lands inside the loop and would skip the count setup
+                prog.append(NOP)
+                continue
+            prog.append(enc_i(random.randint(1, 6), 0, 0, 28, 0x13))
+            prog.extend(body)
+            prog.append(enc_i(-1, 28, 0, 28, 0x13))
+            prog.append(enc_b(-(len(body) + 1) * 4, 0, 28, 1))
         elif (len(prog) + 1) in targets:
             # a jump lands right after this spot, so a jalr pair here could start
             # without its auipc and use a stale x30

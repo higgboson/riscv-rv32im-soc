@@ -11,7 +11,8 @@ module riscv_cpu (
     input  [31:0] ReadData,
     output [31:0] Result,
     output [ 2:0] funct3,              // funct3 of the instruction in Memory (for data_mem)
-    output [31:0] PCW, ALUResultW, WriteDataW
+    output [31:0] PCW, ALUResultW, WriteDataW,
+    output [ 3:0] PerfEvents           // {mispredict, jump, branch, retire} for the counters
 );
 
 wire [31:0] InstrD;
@@ -33,7 +34,8 @@ datapath    dp  (
     .PC(PC), .Instr(Instr),
     .MemWrite(MemWrite), .funct3(funct3),
     .Mem_WrAddr(Mem_WrAddr), .Mem_WrData(Mem_WrData), .ReadData(ReadData),
-    .Result(Result), .PCW(PCW), .ALUResultW(ALUResultW), .WriteDataW(WriteDataW)
+    .Result(Result), .PCW(PCW), .ALUResultW(ALUResultW), .WriteDataW(WriteDataW),
+    .PerfEvents(PerfEvents)
 );
 
 endmodule

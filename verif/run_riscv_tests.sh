@@ -14,6 +14,7 @@
 # Needs: riscv64-unknown-elf-gcc (or set CROSS=...), python3, iverilog
 
 set -e
+# VFLAGS=-DNO_BPRED runs the same tests with branch prediction switched off
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$HERE/..
 CROSS=${CROSS:-riscv64-unknown-elf-}
@@ -25,7 +26,7 @@ if [ ! -d "$TESTS/isa" ]; then
 fi
 
 mkdir -p "$WORK"
-iverilog -g2005 -o "$WORK/sim" "$HERE/tb_program.v" "$ROOT"/code/pl_riscv_cpu.v "$ROOT"/code/riscv_cpu.v \
+iverilog -g2005 $VFLAGS -o "$WORK/sim" "$HERE/tb_program.v" "$ROOT"/code/pl_riscv_cpu.v "$ROOT"/code/riscv_cpu.v \
     "$ROOT"/code/instr_mem.v "$ROOT"/code/data_mem.v "$ROOT"/code/mmio.v "$ROOT"/code/components/*.v
 
 pass=0; fail=0

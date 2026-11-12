@@ -8,6 +8,7 @@
 # Needs: iverilog, python3
 
 set -e
+# VFLAGS=-DNO_BPRED runs the same tests with branch prediction switched off
 N=${1:-100}
 L=${2:-400}
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -15,7 +16,7 @@ RTL=$HERE/../code
 WORK=$HERE/work
 
 mkdir -p "$WORK"
-iverilog -g2005 -o "$WORK/rsim" "$HERE/tb_random.v" "$RTL"/pl_riscv_cpu.v "$RTL"/riscv_cpu.v \
+iverilog -g2005 $VFLAGS -o "$WORK/rsim" "$HERE/tb_random.v" "$RTL"/pl_riscv_cpu.v "$RTL"/riscv_cpu.v \
     "$RTL"/instr_mem.v "$RTL"/data_mem.v "$RTL"/mmio.v "$RTL"/components/*.v
 cd "$WORK"
 

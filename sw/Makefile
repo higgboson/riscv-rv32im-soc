@@ -3,6 +3,7 @@
 #   make PROG=hello            compile sw/programs/hello -> sw/build/hello/
 #   make PROG=hello sim        compile and run it on the RTL (Icarus Verilog)
 #   make PROG=hello install    copy its hex files into code/ so Quartus loads them
+#   make PROG=bench sim VFLAGS=-DNO_BPRED   run with branch prediction switched off
 #
 # On Windows the xPack toolchain is called riscv-none-elf-: use  make CROSS=riscv-none-elf- ...
 
@@ -33,7 +34,7 @@ $(OUT)/imem.hex: $(OUT)/$(PROG).elf
 	python3 elf2hex.py $< $(OUT) $(OBJCOPY)
 
 sim: $(OUT)/imem.hex
-	iverilog -g2005 -o $(OUT)/sim ../verif/tb_program.v $(RTL)/pl_riscv_cpu.v $(RTL)/riscv_cpu.v \
+	iverilog -g2005 $(VFLAGS) -o $(OUT)/sim ../verif/tb_program.v $(RTL)/pl_riscv_cpu.v $(RTL)/riscv_cpu.v \
 	    $(RTL)/instr_mem.v $(RTL)/data_mem.v $(RTL)/mmio.v $(RTL)/components/*.v
 	cd $(OUT) && vvp -n sim
 
