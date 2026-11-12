@@ -36,8 +36,8 @@ wire        RegWriteE, MemWriteE, JumpE, JalrE, BranchE, ALUSrcE, MulDivE;
 wire [ 1:0] ResultSrcE, ASelE;
 wire [ 3:0] ALUControlE;
 wire [31:0] SrcAFwd, SrcA, WriteDataE, SrcB, ALUOutE, MulDivResultE, ALUResultE;
-wire [31:0] PCBranchE, PCTargetE;
-wire        Zero, LT, LTU, TakeBranch, PCSrcE, DivStallE;
+wire [31:0] PCBranchE, JalrTargetE, PCTargetE;
+wire        Zero, LT, LTU, TakeBranch, PCSrcE, DivStallE;   // ALU flags are unused now
 // Memory
 wire [31:0] ALUResultM, WriteDataM, PCM;
 wire [ 4:0] RdM;
@@ -115,10 +115,15 @@ muldiv_unit    mdu     (clk, reset, MulDivE, funct3E, SrcAFwd, WriteDataE,
 assign ALUResultE = MulDivE ? MulDivResultE : ALUOutE;
 
 // branch / jump resolution
-branching_unit bu      (funct3E, Zero, LT, LTU, TakeBranch);
+// The branch compare and the jalr adder take the forwarded register values directly
+// instead of going through the ALU. This is the path that sets the clock speed:
+// forward -> decide the branch -> pick the new PC / flush. Skipping the ALU's input
+// muxes and operation select makes it shorter.
+branching_unit bu      (funct3E, SrcAFwd, WriteDataE, TakeBranch);
 adder          pcaddbranch (PCE, ImmExtE, PCBranchE);
+adder          jalradd (SrcAFwd, ImmExtE, JalrTargetE);
 // jalr jumps to (rs1 + imm) with bit 0 cleared; branches and jal jump to PC + imm
-mux2 #(32)     jalrmux (PCBranchE, {ALUOutE[31:1], 1'b0}, JalrE, PCTargetE);
+mux2 #(32)     jalrmux (PCBranchE, {JalrTargetE[31:1], 1'b0}, JalrE, PCTargetE);
 assign PCSrcE = (BranchE & TakeBranch) | JumpE;
 
 pl_reg_em plem (
