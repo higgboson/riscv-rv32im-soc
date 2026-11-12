@@ -99,7 +99,19 @@ What the numbers say:
 - **collatz** has truly data-dependent branches (`x` odd or even), so some misses are
   unavoidable for any simple predictor.
 
-## 7. Verification
+## 7. Cost in hardware (Quartus, Cyclone IV E)
+
+| | Before | After |
+|---|---|---|
+| Fmax | 57.0 MHz | 56.33 MHz |
+| Logic elements | 2,414 | 3,378 |
+| Registers | 650 | 1,196 |
+
+The extra registers are mostly the BTB table. The slowest path did not change (forwarded load
+data into the multiplier), so the predictor is not what limits the clock; the small drop is
+just different placement. Net gain: 1.26x fewer cycles x (56.33 / 57.0) = about **1.25x faster**.
+
+## 8. Verification
 
 - riscv-tests 48/48 and the random test, with prediction on and off.
 - The random generator now makes **loops** (a backward branch taken 1-6 times, then not
@@ -115,6 +127,11 @@ gives correct results, just slower. Functional tests can't see that. The benchma
 mispredict counts are what catch it.
 
 ## Likely interview questions
+
+0. **Did the predictor slow the clock down?**
+   Barely: 57.0 to 56.33 MHz, and the critical path is still the multiplier path, not the
+   BTB lookup. Net result is still 1.25x faster.
+
 
 1. **What is a BTB and what does it store?**
    A small cache of branches: tag, target address and a 2-bit counter. Looked up with the

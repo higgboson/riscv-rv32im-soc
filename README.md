@@ -88,13 +88,18 @@ Every planted bug was caught.
 
 ## Results (Cyclone IV E, EP4CE22F17C6, Quartus Prime Lite 20.1)
 
-| | Phase 1 |
-|---|---|
-| Fmax (slow 85 C model) | 57.0 MHz (timing met at the 50 MHz target) |
-| Logic elements | 2,414 / 22,320 (11 %) |
-| Registers | 650 |
-| Memory | 264,192 bits in 34 M9K blocks (16 KB IMEM + 16 KB DMEM + register file) |
-| 9-bit multiplier elements | 8 / 132 (the single-cycle 33x33 multiplier) |
+| | Phase 1 (RV32IM) | Phase 2 (+ branch prediction) |
+|---|---|---|
+| Fmax (slow 85 C model) | 57.0 MHz | 56.33 MHz |
+| Logic elements | 2,414 (11 %) | 3,378 (15 %) |
+| Registers | 650 | 1,196 |
+| Memory bits | 264,192 (34 M9K) | 264,800 |
+| 9-bit multiplier elements | 8 | 8 |
+| CPI on the benchmark suite | 1.52 | 1.20 |
+
+Timing is met at the 50 MHz target in both. The branch target buffer is kept in flip-flops
+(about 550 registers) so it can be read in the same cycle as Fetch; it is not on the critical
+path. Net speedup including the small Fmax change: 1.26 x 56.33 / 57.0 = **1.25x**.
 
 Timing work done so far:
 1. The first critical path was data memory read (falling edge) -> load byte select and sign
