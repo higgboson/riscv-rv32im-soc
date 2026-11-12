@@ -1,0 +1,114 @@
+# RV32IM 5-Stage Pipelined RISC-V CPU
+
+A 32-bit RISC-V processor written in Verilog, with a classic 5-stage pipeline
+(Fetch, Decode, Execute, Memory, Writeback). It runs compiled C programs and passes the
+official RISC-V ISA tests for the base integer and multiply/divide instructions.
+
+Started as an e-Yantra Logic Quest (IIT Bombay) task, then extended with the M extension,
+block-RAM memories, memory-mapped I/O, a C toolchain and a full verification flow.
+
+## Features
+
+| Area | Details |
+|---|---|
+| ISA | RV32I base integer (37 instructions) + RV32M (mul, mulh, mulhsu, mulhu, div, divu, rem, remu) |
+| Pipeline | 5 stages, full forwarding from Memory and Writeback, register-file write-through bypass |
+| Hazards | Load-use stall (1 cycle), branch/jump resolved in Execute with 2-instruction flush, divide stall |
+| Multiply | Single cycle, mapped onto the FPGA's hard multiplier blocks |
+| Divide | 33-cycle restoring divider, stalls the front of the pipeline while busy |
+| Memory | Harvard: 16 KB instruction RAM + 16 KB data RAM, both mapped to block RAM, byte/half/word access |
+| I/O | Memory-mapped console, LEDs and TOHOST (pass/fail) register |
+| Software | GCC (`-march=rv32im`), linker script, startup code, small console library |
+
+## Block diagram
+
+See [`assets/architecture.pdf`](assets/architecture.pdf) for the pipeline datapath.
+
+```
+ Fetch          Decode            Execute                   Memory         Writeback
+ PC -> IMEM  -> regfile, imm  ->  ALU / mul-div / branch -> DMEM / I/O  ->  result mux
+   ^                                   |  forwarding <---------+--------------+
+   +---------- branch / jump target ---+
+```
+
+## Memory map
+
+| Address | Size | Use |
+|---|---|---|
+| `0x0000_0000` | 16 KB | Instruction memory (code) |
+| `0x0001_0000` | 16 KB | Data memory (globals, constants, stack) |
+| `0x1000_0000` | | CONSOLE: write a character |
+| `0x1000_0004` | | TOHOST: write 1 = pass, `(n << 1) \| 1` = fail at check n |
+| `0x1000_0008` | | LEDS: 8-bit LED register |
+
+## Verification
+
+Three independent checks, all run on every change:
+
+1. **Official riscv-tests**: all 48 `rv32ui` and `rv32um` tests pass
+   (`fence_i` and `ma_data` are skipped on purpose, see below).
+2. **Random differential testing**: random RV32IM programs, built to hit forwarding, load-use,
+   branches, jumps and back-to-back divides, run on both the RTL and a Python reference model.
+   The full commit log (every register write and every store, in order) and the final state
+   must match. 120 programs, ~46,600 instructions, 0 mismatches.
+3. **Directed testbench** from e-Yantra: 38 instruction checks, all pass.
+
+The random test was checked by planting bugs in the design (removing the load-use stall,
+breaking forwarding, wrong divide-by-zero result, missing pipeline bubble during divide,
+missing reset flush). Every planted bug was caught.
+
+## Results (Cyclone IV E, EP4CE22F17C6)
+
+| | Phase 1 |
+|---|---|
+| Fmax | *to be filled from Quartus TimeQuest* |
+| Logic elements | *to be filled* |
+| Memory bits | *to be filled* |
+| 9-bit multipliers | *to be filled* |
+
+## How to run
+
+Needs `iverilog`, `python3` and a RISC-V GCC (`riscv64-unknown-elf-gcc`, or the xPack
+`riscv-none-elf-gcc` on Windows with `CROSS=riscv-none-elf-`).
+
+```bash
+# C program on the CPU
+cd sw && make PROG=hello sim
+
+# official ISA tests
+verif/run_riscv_tests.sh
+
+# random differential test (100 programs)
+verif/run_random.sh 100
+
+# original e-Yantra testbench (run from code/ so it finds imem.hex)
+cd code && iverilog -g2005 -o tb ../.test/tb.v *.v components/*.v && vvp tb
+```
+
+To put a C program on the FPGA: `make PROG=hello install` copies its hex files into `code/`,
+then compile in Quartus.
+
+## Repository layout
+
+```
+code/             RTL (top: pl_riscv_cpu.v)
+code/components/  pipeline blocks: datapath, hazard unit, ALU, mul/div unit, ...
+sw/               C toolchain: link.ld, crt0.S, console library, programs/, Makefile
+verif/            riscv-tests runner, random test generator + reference model, testbenches
+.test/tb.v        original e-Yantra directed testbench
+docs/             design notes for each phase
+```
+
+## Known limitations
+
+- No misaligned loads/stores (the ISA allows a core to not support them).
+- No CSRs, traps or interrupts, so no ECALL/EBREAK and no operating system.
+- Code cannot be modified at run time (separate instruction memory), so `fence.i` is a no-op.
+- Branches are resolved in Execute and always predicted not-taken (2-cycle penalty when taken).
+
+## Roadmap
+
+- [x] Phase 1: RV32M, block-RAM memories, MMIO, C toolchain, riscv-tests
+- [ ] Phase 2: performance counters, branch prediction (BTB + 2-bit BHT)
+- [ ] Phase 3: L1 instruction and data caches
+- [ ] Phase 4: memory-mapped INT8 systolic-array accelerator
