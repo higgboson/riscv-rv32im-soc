@@ -61,15 +61,21 @@ missing reset flush). Every planted bug was caught.
 
 | | Phase 1 |
 |---|---|
-| Fmax (slow 85 C model) | 57.06 MHz (timing met at the 50 MHz target) |
-| Logic elements | 2,337 / 22,320 (10 %) |
-| Registers | 647 |
+| Fmax (slow 85 C model) | 57.0 MHz (timing met at the 50 MHz target) |
+| Logic elements | 2,414 / 22,320 (11 %) |
+| Registers | 650 |
 | Memory | 264,192 bits in 34 M9K blocks (16 KB IMEM + 16 KB DMEM + register file) |
 | 9-bit multiplier elements | 8 / 132 (the single-cycle 33x33 multiplier) |
 
-Critical path: data memory read (falling edge) -> load byte/half select and sign-extend ->
-MEM/WB register (rising edge). It only gets half a clock period because the memories are
-read on the falling edge, so this is the first thing to improve.
+Timing work done so far:
+1. The first critical path was data memory read (falling edge) -> load byte select and sign
+   extend -> MEM/WB, in half a cycle. The byte select moved to Writeback (`load_extend.v`).
+2. That exposed the branch path: forwarding -> ALU input muxes -> ALU subtract -> branch
+   decision -> flush. Branches now use their own comparator and `jalr` its own adder, fed
+   directly from the forwarded registers.
+3. The critical path is now: load data in Writeback -> forwarding -> single-cycle multiplier
+   -> EX/MEM (17.5 ns). Several paths now sit close to the same delay, so the next real gain
+   needs a structural change: a 2-cycle (registered) multiplier and rising-edge memories.
 
 ## How to run
 

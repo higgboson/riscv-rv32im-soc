@@ -51,6 +51,17 @@ into and out of the RAM. Quartus confirms this is what limits the clock: the slo
 extension, into the MEM/WB register, all in half a cycle. The fix is to read memory on the
 rising edge and do the byte select in Writeback, which costs a little extra forwarding logic.
 
+What was actually done (and measured in Quartus each time):
+1. Byte select moved to Writeback: the memory path got faster, but the branch path became
+   the slowest (54 MHz), because the forwarded load value now passes the byte select too.
+2. Branch compare and jalr target got their own comparator / adder, fed straight from the
+   forwarded registers instead of through the ALU's input muxes: back to 57 MHz.
+3. Now the slowest path is forwarded load data -> single-cycle multiplier. Several paths are
+   close to the same delay, so the next step would be a 2-cycle multiplier.
+
+**Lesson (good interview answer):** fixing one critical path only helps until the next one
+shows up. You measure, fix, and measure again.
+
 ## 4. Memory-mapped I/O
 
 Any address with top bits `0x1` goes to `code/mmio.v` instead of data memory. Programs use
