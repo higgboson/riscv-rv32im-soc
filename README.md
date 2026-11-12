@@ -1,11 +1,13 @@
 # RV32IM 5-Stage Pipelined RISC-V CPU
 
 A 32-bit RISC-V processor written in Verilog, with a classic 5-stage pipeline
-(Fetch, Decode, Execute, Memory, Writeback). It runs compiled C programs and passes the
-official RISC-V ISA tests for the base integer and multiply/divide instructions.
+(Fetch, Decode, Execute, Memory, Writeback). It runs compiled C programs, passes the
+official RISC-V ISA tests for the base integer and multiply/divide instructions, and predicts
+branches with a branch target buffer (1.26x faster on the benchmark suite).
 
 Started as an e-Yantra Logic Quest (IIT Bombay) task, then extended with the M extension,
-block-RAM memories, memory-mapped I/O, a C toolchain and a full verification flow.
+block-RAM memories, memory-mapped I/O, a C toolchain, branch prediction, hardware performance
+counters and a full verification flow.
 
 ## Features
 
@@ -13,7 +15,9 @@ block-RAM memories, memory-mapped I/O, a C toolchain and a full verification flo
 |---|---|
 | ISA | RV32I base integer (37 instructions) + RV32M (mul, mulh, mulhsu, mulhu, div, divu, rem, remu) |
 | Pipeline | 5 stages, full forwarding from Memory and Writeback, register-file write-through bypass |
-| Hazards | Load-use stall (1 cycle), branch/jump resolved in Execute with 2-instruction flush, divide stall |
+| Hazards | Load-use stall (1 cycle), divide stall, 2-cycle flush on a wrong branch guess |
+| Branch prediction | 32-entry branch target buffer with 2-bit counters, looked up in Fetch, checked in Execute |
+| Performance counters | cycles, instructions retired, branches, jumps, mispredictions (memory mapped) |
 | Multiply | Single cycle, mapped onto the FPGA's hard multiplier blocks |
 | Divide | 33-cycle restoring divider, stalls the front of the pipeline while busy |
 | Memory | Harvard: 16 KB instruction RAM + 16 KB data RAM, both mapped to block RAM, byte/half/word access |
@@ -40,22 +44,47 @@ See [`assets/architecture.pdf`](assets/architecture.pdf) for the pipeline datapa
 | `0x1000_0000` | | CONSOLE: write a character |
 | `0x1000_0004` | | TOHOST: write 1 = pass, `(n << 1) \| 1` = fail at check n |
 | `0x1000_0008` | | LEDS: 8-bit LED register |
+| `0x1000_0010` | | CYCLES counter |
+| `0x1000_0014` | | INSTRET counter (instructions retired) |
+| `0x1000_0018` | | BRANCHES counter |
+| `0x1000_001C` | | JUMPS counter |
+| `0x1000_0020` | | MISPREDICTS counter |
+
+## Branch prediction results
+
+`sw/programs/bench`: six self-checking C kernels, counted by the hardware counters.
+Same RTL, prediction switched off with `-DNO_BPRED`.
+
+| Kernel | CPI, no prediction | CPI, with prediction | Mispredicts (off -> on) |
+|---|---|---|---|
+| sort (insertion) | 1.58 | 1.26 | 11,246 -> 215 |
+| matmul 16x16 | 1.72 | 1.49 | 4,607 -> 316 |
+| sieve | 1.53 | 1.10 | 11,633 -> 592 |
+| crc32 | 1.27 | 1.03 | 2,304 -> 263 |
+| fib (recursive) | 1.16 | 1.07 | 1,189 -> 530 |
+| collatz | 1.45 | 1.10 | 9,613 -> 2,028 |
+| **Total** | **1.52** | **1.20** | **40,592 -> 3,944 (-90 %)** |
+
+Total cycles 350,096 -> 276,800: **1.26x faster**. matmul stays at 1.49 because its setup uses
+`%` (a 33-cycle divide) 512 times, not because of branches. fib keeps the most mispredicts
+because function returns (`jalr`) are not predicted; a return address stack would fix that.
 
 ## Verification
 
 Three independent checks, all run on every change:
 
-1. **Official riscv-tests**: all 48 `rv32ui` and `rv32um` tests pass
-   (`fence_i` and `ma_data` are skipped on purpose, see below).
+1. **Official riscv-tests**: all 48 `rv32ui` and `rv32um` tests pass, with branch prediction
+   on and off (`fence_i` and `ma_data` are skipped on purpose, see below).
 2. **Random differential testing**: random RV32IM programs, built to hit forwarding, load-use,
-   branches, jumps and back-to-back divides, run on both the RTL and a Python reference model.
+   branches, jumps, loops and back-to-back divides, run on both the RTL and a Python reference model.
    The full commit log (every register write and every store, in order) and the final state
    must match. 120 programs, ~46,600 instructions, 0 mismatches.
 3. **Directed testbench** from e-Yantra: 38 instruction checks, all pass.
 
 The random test was checked by planting bugs in the design (removing the load-use stall,
 breaking forwarding, wrong divide-by-zero result, missing pipeline bubble during divide,
-missing reset flush). Every planted bug was caught.
+missing reset flush, missed "predicted taken but not taken" case, wrong redirect address).
+Every planted bug was caught.
 
 ## Results (Cyclone IV E, EP4CE22F17C6, Quartus Prime Lite 20.1)
 
@@ -86,6 +115,9 @@ Needs `iverilog`, `python3` and a RISC-V GCC (`riscv64-unknown-elf-gcc`, or the 
 # C program on the CPU
 cd sw && make PROG=hello sim
 
+# benchmarks with and without branch prediction
+cd sw && make PROG=bench sim && make PROG=bench sim VFLAGS=-DNO_BPRED
+
 # official ISA tests
 verif/run_riscv_tests.sh
 
@@ -115,11 +147,13 @@ docs/             design notes for each phase
 - No misaligned loads/stores (the ISA allows a core to not support them).
 - No CSRs, traps or interrupts, so no ECALL/EBREAK and no operating system.
 - Code cannot be modified at run time (separate instruction memory), so `fence.i` is a no-op.
-- Branches are resolved in Execute and always predicted not-taken (2-cycle penalty when taken).
+- A wrong branch guess costs 2 cycles (branches resolve in Execute).
+- Function returns (`jalr`) are not predicted.
+- Performance counters are 32 bits, so they wrap after about 85 s at 50 MHz.
 
 ## Roadmap
 
 - [x] Phase 1: RV32M, block-RAM memories, MMIO, C toolchain, riscv-tests
-- [ ] Phase 2: performance counters, branch prediction (BTB + 2-bit BHT)
+- [x] Phase 2: performance counters, branch prediction (BTB + 2-bit counters), benchmarks
 - [ ] Phase 3: L1 instruction and data caches
 - [ ] Phase 4: memory-mapped INT8 systolic-array accelerator
