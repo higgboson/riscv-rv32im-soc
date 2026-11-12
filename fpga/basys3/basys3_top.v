@@ -3,7 +3,8 @@
 //   clock    : 100 MHz board oscillator -> MMCM -> CPU clock (CLK_HZ)
 //   btnC     : reset (hold to restart the program)
 //   UART     : USB port, 115200 baud 8N1 (open the COM port in PuTTY / Tera Term)
-//   LEDs     : LEDS register; LED 15 = program passed, LED 14 = program failed
+//   LEDs     : LEDS register; LED 15 = program passed, LED 14 = program failed,
+//              LED 13 = a program is being loaded over the UART (sw/load.py)
 //   7-seg    : HEX register, in hexadecimal
 //   switches : SWITCHES register
 //   btnU/L/R/D : BUTTONS register
@@ -72,7 +73,7 @@ wire reset = !rst_cnt[4];
 wire [15:0] leds;
 wire [19:0] hex;
 wire [31:0] tohost;
-wire        tohost_valid;
+wire        tohost_valid, loading;
 
 soc #(.CLK_HZ(CLK_HZ), .BAUD(115_200)) soc_i (
     .clk(cpu_clk), .reset(reset),
@@ -81,13 +82,13 @@ soc #(.CLK_HZ(CLK_HZ), .BAUD(115_200)) soc_i (
     .PCW(), .Result(), .ALUResultW(), .WriteDataW(),
     .leds(leds), .hex(hex), .switches(sw), .buttons({btnD, btnR, btnL, btnU}),
     .uart_rx(RsRx), .uart_tx(RsTx),
-    .tohost(tohost), .tohost_valid(tohost_valid)
+    .tohost(tohost), .tohost_valid(tohost_valid), .loading(loading)
 );
 
 // LED 15 / 14 show the program's pass / fail result once it writes TOHOST
 wire passed = tohost_valid && (tohost == 32'd1);
 wire failed = tohost_valid && (tohost != 32'd1);
-assign led = {passed, failed, leds[13:0]};
+assign led = {passed, failed, loading, leds[12:0]};
 
 seven_seg #(.CLK_HZ(CLK_HZ)) disp (
     .clk(cpu_clk), .value(hex[15:0]), .dots(hex[19:16]),

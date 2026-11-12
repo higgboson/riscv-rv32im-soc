@@ -4,6 +4,7 @@
 #   make PROG=hello sim        compile and run it on the RTL (Icarus Verilog)
 #   make PROG=hello install    copy its hex files into code/ so Quartus loads them
 #   make PROG=bench sim VFLAGS=-DNO_BPRED   run with branch prediction switched off
+#   make prebuilt              rebuild sw/prebuilt/ (hello, bench, demo)
 #
 # On Windows the xPack toolchain is called riscv-none-elf-: use  make CROSS=riscv-none-elf- ...
 
@@ -16,7 +17,7 @@ OBJDUMP = $(CROSS)objdump
 # rv32im = base integers + multiply / divide, which is what the CPU supports.
 # No standard library: the CPU has no OS, console.c gives the few functions we need.
 CFLAGS  = -march=rv32im -mabi=ilp32 -O2 -ffreestanding -nostdlib -nostartfiles \
-          -fno-builtin-printf -Wall -Icommon
+          -fno-builtin-printf -Wall -Icommon -Iprograms/bench
 LDFLAGS = -T common/link.ld -Wl,--gc-sections -lgcc
 
 SRC   = common/crt0.S common/console.c $(wildcard programs/$(PROG)/*.c)
@@ -37,10 +38,18 @@ sim: $(OUT)/imem.hex
 	iverilog -g2005 $(VFLAGS) -o $(OUT)/sim ../verif/tb_program.v $(RTL)/*.v $(RTL)/components/*.v $(RTL)/io/*.v
 	cd $(OUT) && vvp -n sim
 
+# Prebuilt programs, kept in git so the board can be used without a RISC-V compiler
+# (sw/load.py and fpga/basys3/build.tcl read them from sw/prebuilt/)
+PREBUILT = hello bench demo
+prebuilt:
+	for p in $(PREBUILT); do \
+	    $(MAKE) -s PROG=$$p && mkdir -p prebuilt/$$p && cp build/$$p/*.hex prebuilt/$$p/ ; \
+	done
+
 install: $(OUT)/imem.hex
 	cp $(OUT)/imem.hex $(OUT)/dmem0.hex $(OUT)/dmem1.hex $(OUT)/dmem2.hex $(OUT)/dmem3.hex $(RTL)/
 
 clean:
 	rm -rf build
 
-.PHONY: all sim install clean
+.PHONY: all sim install clean prebuilt

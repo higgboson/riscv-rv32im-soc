@@ -2,8 +2,11 @@
 #
 # From the repository root, in a terminal where Vivado is on the PATH:
 #   vivado -mode batch -source fpga/basys3/build.tcl
-# Optional: a different CPU clock in MHz (1000 / MHz must be a multiple of 0.125):
+# Optional: CPU clock in MHz (1000 / MHz must be a multiple of 0.125), and the program to
+# build into the bitstream (a folder with imem.hex + dmem0..3.hex, default sw/prebuilt/demo):
 #   vivado -mode batch -source fpga/basys3/build.tcl -tclargs 62.5
+#   vivado -mode batch -source fpga/basys3/build.tcl -tclargs 50 sw/prebuilt/hello
+# Other programs can be sent later without rebuilding: python sw/load.py COM5 bench
 #
 # Output in fpga/basys3/build/: basys3_rv32im.bit plus timing / utilisation reports.
 
@@ -13,16 +16,18 @@ set build_dir  "$script_dir/build"
 set part       xc7a35tcpg236-1
 
 set clk_mhz 50
+set fw_dir  "$root/sw/prebuilt/demo"
 if {$argc > 0} { set clk_mhz [lindex $argv 0] }
+if {$argc > 1} { set fw_dir [file normalize [lindex $argv 1]] }
 set clk_hz [expr {int($clk_mhz * 1000000)}]
 
 file mkdir $build_dir
 cd $build_dir
 
 # $readmemh looks for the memory files in the folder Vivado runs in, so copy them here.
-# They hold the program that is built into the bitstream (default: code/imem.hex etc.).
+# They hold the program the board runs after power-up.
 foreach f {imem.hex dmem0.hex dmem1.hex dmem2.hex dmem3.hex} {
-    file copy -force "$root/code/$f" $build_dir
+    file copy -force "$fw_dir/$f" $build_dir
 }
 
 read_verilog [glob $root/code/*.v $root/code/components/*.v $root/code/io/*.v]

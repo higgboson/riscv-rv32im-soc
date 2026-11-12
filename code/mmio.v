@@ -29,7 +29,10 @@ module mmio #(
     parameter CLK_HZ = 50_000_000,
     parameter BAUD   = 115_200
 ) (
-    input             clk, reset,
+    input             clk,
+    input             reset,            // CPU reset: registers and counters
+    input             uart_reset,       // board reset only: the UART keeps working while
+                                        // the loader holds the CPU in reset
     input             wr_en,
     input      [31:0] addr, wr_data,
     input      [ 3:0] perf_events,      // {mispredict, jump, branch, retire} pulses from the CPU
@@ -41,6 +44,11 @@ module mmio #(
     input      [ 3:0] buttons,
     input             uart_rx,
     output            uart_tx,
+    // shared with the program loader
+    output            rx_byte_valid,
+    output     [ 7:0] rx_byte,
+    input             tx_ext_we,        // loader reply byte
+    input      [ 7:0] tx_ext_data,
     // end of program (testbench / LEDs)
     output reg [31:0] tohost,
     output reg        tohost_valid
@@ -53,18 +61,18 @@ localparam R_UART_TX = 4'd0,  R_TOHOST = 4'd1,  R_LEDS = 4'd2,     R_STATUS = 4'
            R_MISPRED = 4'd8,  R_HEX = 4'd9,     R_SWITCHES = 4'd10, R_BUTTONS = 4'd11,
            R_UART_RX = 4'd12;
 
-// UART
-wire tx_full, tx_busy, rx_byte_valid;
-wire [7:0] rx_byte;
+// UART (the loader only sends while the CPU is in reset, so the two never collide)
+wire tx_full, tx_busy;
+wire cpu_tx_we = !reset && wr_en && reg_sel == R_UART_TX;
 
 uart_tx #(.CLK_HZ(CLK_HZ), .BAUD(BAUD)) utx (
-    .clk(clk), .reset(reset),
-    .wr_en(wr_en && reg_sel == R_UART_TX), .wr_data(wr_data[7:0]),
+    .clk(clk), .reset(uart_reset),
+    .wr_en(cpu_tx_we | tx_ext_we), .wr_data(tx_ext_we ? tx_ext_data : wr_data[7:0]),
     .full(tx_full), .busy(tx_busy), .tx(uart_tx)
 );
 
 uart_rx #(.CLK_HZ(CLK_HZ), .BAUD(BAUD)) urx (
-    .clk(clk), .reset(reset), .rx(uart_rx),
+    .clk(clk), .reset(uart_reset), .rx(uart_rx),
     .valid(rx_byte_valid), .data(rx_byte)
 );
 

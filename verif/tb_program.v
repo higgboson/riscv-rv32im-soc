@@ -20,7 +20,7 @@ soc #(.CLK_HZ(50_000_000), .BAUD(5_000_000)) uut (
     .MemWrite(MemWrite), .WriteData(WriteData), .DataAdr(DataAdr), .ReadData(ReadData),
     .PCW(PCW), .Result(Result), .ALUResultW(ALUResultW), .WriteDataW(WriteDataW),
     .leds(), .hex(), .switches(16'h0000), .buttons(4'b0000),
-    .uart_rx(1'b1), .uart_tx(uart_tx), .tohost(), .tohost_valid()
+    .uart_rx(1'b1), .uart_tx(uart_tx), .tohost(), .tohost_valid(), .loading()
 );
 
 initial begin clk = 0; reset = 1; end

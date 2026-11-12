@@ -7,7 +7,9 @@ branches with a branch target buffer (1.26x faster on the benchmark suite).
 
 Started as an e-Yantra Logic Quest (IIT Bombay) task, then extended with the M extension,
 block-RAM memories, memory-mapped I/O, a C toolchain, branch prediction, hardware performance
-counters and a full verification flow.
+counters and a full verification flow. Runs on a **Digilent Basys 3 (Xilinx Artix-7)** with a
+UART console and a UART program loader, so new programs load in under a second without
+rebuilding the bitstream.
 
 ## Features
 
@@ -23,6 +25,8 @@ counters and a full verification flow.
 | Memory | Harvard: 16 KB instruction RAM + 16 KB data RAM, both mapped to block RAM, byte/half/word access |
 | I/O | Memory-mapped console, LEDs and TOHOST (pass/fail) register |
 | Software | GCC (`-march=rv32im`), linker script, startup code, small console library |
+| FPGA | Basys 3 (Artix-7 XC7A35T): MMCM clocking, UART console, 7-segment display, LEDs, switches, buttons |
+| Program loader | hardware UART loader with checksum: `python sw/load.py COM5 bench` |
 
 ## Block diagram
 
@@ -41,14 +45,19 @@ See [`assets/architecture.pdf`](assets/architecture.pdf) for the pipeline datapa
 |---|---|---|
 | `0x0000_0000` | 16 KB | Instruction memory (code) |
 | `0x0001_0000` | 16 KB | Data memory (globals, constants, stack) |
-| `0x1000_0000` | | CONSOLE: write a character |
+| `0x1000_0000` | | UART_TX: send a character |
 | `0x1000_0004` | | TOHOST: write 1 = pass, `(n << 1) \| 1` = fail at check n |
-| `0x1000_0008` | | LEDS: 8-bit LED register |
+| `0x1000_0008` | | LEDS: 16 board LEDs |
+| `0x1000_000C` | | UART_STATUS: TX full, TX busy, RX byte waiting |
 | `0x1000_0010` | | CYCLES counter |
 | `0x1000_0014` | | INSTRET counter (instructions retired) |
 | `0x1000_0018` | | BRANCHES counter |
 | `0x1000_001C` | | JUMPS counter |
 | `0x1000_0020` | | MISPREDICTS counter |
+| `0x1000_0024` | | HEX: value for the 7-segment display (+ decimal points) |
+| `0x1000_0028` | | SWITCHES |
+| `0x1000_002C` | | BUTTONS |
+| `0x1000_0030` | | UART_RX: received byte |
 
 ## Branch prediction results
 
@@ -111,7 +120,20 @@ Timing work done so far:
    -> EX/MEM (17.5 ns). Several paths now sit close to the same delay, so the next real gain
    needs a structural change: a 2-cycle (registered) multiplier and rising-edge memories.
 
-## How to run
+## On the Basys 3
+
+Step by step: [`docs/basys3_guide.md`](docs/basys3_guide.md).
+
+```
+vivado -mode batch -source fpga/basys3/build.tcl      # bitstream with the demo program
+vivado -mode batch -source fpga/basys3/program.tcl    # program the board over USB
+python sw/load.py COM5 bench                         # load another program, see its output
+```
+
+After reset the demo prints the benchmark table measured on the board, shows the CPI on
+the 7-segment display ("1.20"), and lets the switches drive the LEDs.
+
+## How to run (simulation)
 
 Needs `iverilog`, `python3` and a RISC-V GCC (`riscv64-unknown-elf-gcc`, or the xPack
 `riscv-none-elf-gcc` on Windows with `CROSS=riscv-none-elf-`).
@@ -129,6 +151,12 @@ verif/run_riscv_tests.sh
 # random differential test (100 programs)
 verif/run_random.sh 100
 
+# Basys 3 top level: UART output, program loader, damaged-program rejection
+verif/run_board_tests.sh
+
+# everything
+verif/run_all.sh
+
 # original e-Yantra testbench (run from code/ so it finds imem.hex)
 cd code && iverilog -g2005 -o tb ../.test/tb.v *.v components/*.v io/*.v && vvp tb
 ```
@@ -139,10 +167,15 @@ then compile in Quartus.
 ## Repository layout
 
 ```
-code/             RTL (top: pl_riscv_cpu.v)
-code/components/  pipeline blocks: datapath, hazard unit, ALU, mul/div unit, ...
+code/             RTL: soc.v (CPU + memories + I/O), pl_riscv_cpu.v (e-Yantra wrapper)
+code/components/  pipeline blocks: datapath, hazard unit, ALU, mul/div unit, branch predictor
+code/io/          UART TX/RX, UART program loader, 7-segment driver
+fpga/basys3/      Basys 3 top level, pin constraints, Vivado build / program scripts
 sw/               C toolchain: link.ld, crt0.S, console library, programs/, Makefile
-verif/            riscv-tests runner, random test generator + reference model, testbenches
+sw/prebuilt/      hello, bench, demo, ready to load (no RISC-V compiler needed)
+sw/load.py        sends a program to the board over USB-UART
+verif/            riscv-tests runner, random test generator + reference model, board-level
+                  testbench with a UART model, testbenches
 .test/tb.v        original e-Yantra directed testbench
 docs/             design notes for each phase
 ```
@@ -160,5 +193,7 @@ docs/             design notes for each phase
 
 - [x] Phase 1: RV32M, block-RAM memories, MMIO, C toolchain, riscv-tests
 - [x] Phase 2: performance counters, branch prediction (BTB + 2-bit counters), benchmarks
-- [ ] Phase 3: L1 instruction and data caches
-- [ ] Phase 4: memory-mapped INT8 systolic-array accelerator
+- [x] Basys 3: UART console, display / LEDs / switches, UART program loader
+- [ ] INT8 systolic-array accelerator, memory mapped, driven from C
+- [ ] RTL-to-GDSII of the core with OpenLane (SkyWater 130 nm)
+- [ ] Interrupts and CSRs (timer interrupt, trap handling)

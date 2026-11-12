@@ -14,3 +14,7 @@ sw/build/
 *.vcd
 __pycache__/
 results.txt
+fpga/basys3/build/
+*.jou
+*.log
+.Xil/

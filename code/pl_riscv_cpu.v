@@ -16,7 +16,7 @@ soc soc_i (
     .MemWrite(MemWrite), .WriteData(WriteData), .DataAdr(DataAdr), .ReadData(ReadData),
     .PCW(PCW), .Result(Result), .ALUResultW(ALUResultW), .WriteDataW(WriteDataW),
     .leds(), .hex(), .switches(16'b0), .buttons(4'b0),
-    .uart_rx(1'b1), .uart_tx(), .tohost(), .tohost_valid()
+    .uart_rx(1'b1), .uart_tx(), .tohost(), .tohost_valid(), .loading()
 );
 
 endmodule
