@@ -45,9 +45,11 @@ rising edge, the RAM reads half a cycle later, and the instruction is ready at t
 rising edge. Fetch still takes one cycle. The register file and data memory already
 worked this way.
 
-**Trade-off (likely question):** a falling-edge read leaves only half a cycle for the path
-into the RAM, which can limit the maximum clock. The fix would be a fully synchronous design
-with one more fetch stage, which is a bigger change.
+**Trade-off (likely question):** a falling-edge read leaves only half a cycle for the paths
+into and out of the RAM. Quartus confirms this is what limits the clock: the slowest path
+(57 MHz) goes from the data memory read, through the load byte/half select and sign
+extension, into the MEM/WB register, all in half a cycle. The fix is to read memory on the
+rising edge and do the byte select in Writeback, which costs a little extra forwarding logic.
 
 ## 4. Memory-mapped I/O
 

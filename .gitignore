@@ -13,3 +13,4 @@ sim_build/
 sw/build/
 *.vcd
 __pycache__/
+results.txt

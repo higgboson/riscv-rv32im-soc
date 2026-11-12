@@ -57,14 +57,19 @@ The random test was checked by planting bugs in the design (removing the load-us
 breaking forwarding, wrong divide-by-zero result, missing pipeline bubble during divide,
 missing reset flush). Every planted bug was caught.
 
-## Results (Cyclone IV E, EP4CE22F17C6)
+## Results (Cyclone IV E, EP4CE22F17C6, Quartus Prime Lite 20.1)
 
 | | Phase 1 |
 |---|---|
-| Fmax | *to be filled from Quartus TimeQuest* |
-| Logic elements | *to be filled* |
-| Memory bits | *to be filled* |
-| 9-bit multipliers | *to be filled* |
+| Fmax (slow 85 C model) | 57.06 MHz (timing met at the 50 MHz target) |
+| Logic elements | 2,337 / 22,320 (10 %) |
+| Registers | 647 |
+| Memory | 264,192 bits in 34 M9K blocks (16 KB IMEM + 16 KB DMEM + register file) |
+| 9-bit multiplier elements | 8 / 132 (the single-cycle 33x33 multiplier) |
+
+Critical path: data memory read (falling edge) -> load byte/half select and sign-extend ->
+MEM/WB register (rising edge). It only gets half a clock period because the memories are
+read on the falling edge, so this is the first thing to improve.
 
 ## How to run
 
