@@ -1,11 +1,31 @@
-// console.c - printing through the CONSOLE I/O register, plus memset / memcpy
+// console.c - printing over the UART, plus memset / memcpy
 // (gcc may call memset / memcpy on its own, e.g. to zero a local array, even with no libc)
 
 #include "console.h"
 
+// the UART sends ~11,500 characters a second; wait while its FIFO is full
 void putchar_(char c)
 {
-    IO_CONSOLE = (uint32_t)c;
+    if (c == '\n')
+        putchar_('\r');          // terminals on Windows want CR LF
+    while (IO_UART_STATUS & UART_TX_FULL)
+        ;
+    IO_UART_TX = (uint32_t)c;
+}
+
+int getchar_nb(void)
+{
+    uint32_t r = IO_UART_RX;
+    if (!(r & 0x100))
+        return -1;
+    IO_UART_RX = 0;              // mark it as taken
+    return (int)(r & 0xFF);
+}
+
+void uart_flush(void)
+{
+    while (IO_UART_STATUS & UART_TX_BUSY)
+        ;
 }
 
 void print_str(const char *s)

@@ -130,7 +130,7 @@ verif/run_riscv_tests.sh
 verif/run_random.sh 100
 
 # original e-Yantra testbench (run from code/ so it finds imem.hex)
-cd code && iverilog -g2005 -o tb ../.test/tb.v *.v components/*.v && vvp tb
+cd code && iverilog -g2005 -o tb ../.test/tb.v *.v components/*.v io/*.v && vvp tb
 ```
 
 To put a C program on the FPGA: `make PROG=hello install` copies its hex files into `code/`,

@@ -49,7 +49,12 @@ int main(void)
     if (q != -3 || r != -1) errors++;
 
     IO_LEDS = errors ? 0x0F : 0xA5;   // pattern on the board LEDs: A5 = all good
+    IO_HEX  = errors ? 0xBAD : 0x600D; // 7-segment display: "600d" or "0bad"
+
+    // the switches are read through I/O too
+    print_str("switches = ");  print_hex(IO_SWITCHES);  print_str("\n");
 
     print_str(errors ? "FAILED\n" : "All checks passed\n");
+    uart_flush();                      // let the last characters leave before reporting
     return errors;
 }

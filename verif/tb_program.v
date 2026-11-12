@@ -11,8 +11,17 @@ reg clk, reset;
 wire MemWrite;
 wire [31:0] WriteData, DataAdr, ReadData, PCW, Result, ALUResultW, WriteDataW;
 
-pl_riscv_cpu uut (clk, reset, 1'b0, 32'b0, 32'b0, MemWrite, WriteData, DataAdr, ReadData,
-                  PCW, Result, ALUResultW, WriteDataW);
+wire uart_tx;
+
+// fast UART (10 clocks per bit) so printing does not slow the simulation down
+soc #(.CLK_HZ(50_000_000), .BAUD(5_000_000)) uut (
+    .clk(clk), .reset(reset),
+    .Ext_MemWrite(1'b0), .Ext_WriteData(32'b0), .Ext_DataAdr(32'b0),
+    .MemWrite(MemWrite), .WriteData(WriteData), .DataAdr(DataAdr), .ReadData(ReadData),
+    .PCW(PCW), .Result(Result), .ALUResultW(ALUResultW), .WriteDataW(WriteDataW),
+    .leds(), .hex(), .switches(16'h0000), .buttons(4'b0000),
+    .uart_rx(1'b1), .uart_tx(uart_tx), .tohost(), .tohost_valid()
+);
 
 initial begin clk = 0; reset = 1; end
 always #5 clk = ~clk;

@@ -34,8 +34,7 @@ $(OUT)/imem.hex: $(OUT)/$(PROG).elf
 	python3 elf2hex.py $< $(OUT) $(OBJCOPY)
 
 sim: $(OUT)/imem.hex
-	iverilog -g2005 $(VFLAGS) -o $(OUT)/sim ../verif/tb_program.v $(RTL)/pl_riscv_cpu.v $(RTL)/riscv_cpu.v \
-	    $(RTL)/instr_mem.v $(RTL)/data_mem.v $(RTL)/mmio.v $(RTL)/components/*.v
+	iverilog -g2005 $(VFLAGS) -o $(OUT)/sim ../verif/tb_program.v $(RTL)/*.v $(RTL)/components/*.v $(RTL)/io/*.v
 	cd $(OUT) && vvp -n sim
 
 install: $(OUT)/imem.hex
