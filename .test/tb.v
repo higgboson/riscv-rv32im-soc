@@ -489,6 +489,7 @@ always @(negedge clk) begin
             if (Result === 32'h13C ) $display("38. jal implementation is correct ");
             else begin
                 $display("38. jal implementation is incorrect");
+                fault_instrs = fault_instrs + 1'b1;   // was missing, so a jal failure still printed "No errors"
             end
         end
 

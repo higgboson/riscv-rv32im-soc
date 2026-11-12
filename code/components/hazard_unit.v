@@ -1,25 +1,27 @@
-
-// hazard_unit.v - combinational hazard unit (no clock, no state)
+// hazard_unit.v - decides forwarding, stalls and flushes (pure logic, no clock)
 //
-//  1. Data hazards    : forward ALUResultM / ResultW back to the ALU inputs in Execute
-//  2. Load-use hazard : a load in Execute whose Rd is a source of the instruction in Decode
-//                       -> stall Fetch + Decode one cycle, bubble into Execute
-//  3. Control hazard  : branch / jump taken in Execute -> flush the two wrong-path
-//                       instructions (one in Decode, one just fetched)
+//  1. Data hazard    : a result still in Memory / Writeback is forwarded to the ALU in Execute.
+//  2. Load-use       : a load in Execute feeds the instruction in Decode. The data is not
+//                      ready yet, so Fetch and Decode wait one cycle and a bubble goes into Execute.
+//  3. Control hazard : a taken branch / jump in Execute throws away the two wrong-path
+//                      instructions behind it (in Fetch and Decode).
+//  4. Divide busy    : a divide in Execute takes many cycles. Everything behind it waits,
+//                      and bubbles go into Memory so the instructions ahead can still finish.
 
 module hazard_unit (
     input  [4:0] Rs1D, Rs2D,          // sources of the instruction in Decode
     input  [4:0] Rs1E, Rs2E, RdE,     // sources / destination of the instruction in Execute
     input  [4:0] RdM,  RdW,           // destinations in Memory / Writeback
     input        RegWriteM, RegWriteW,
-    input        ResultSrcE0,         // ResultSrcE[0] = 1 -> instruction in Execute is a load
+    input        ResultSrcE0,         // 1 -> the instruction in Execute is a load
     input        PCSrcE,              // branch / jump taken in Execute
+    input        DivStallE,           // divide in Execute is not finished
     output reg [1:0] ForwardAE, ForwardBE,   // 00 = register file, 01 = ResultW, 10 = ALUResultM
-    output       StallF, StallD,
-    output       FlushD, FlushE
+    output       StallF, StallD, StallE,
+    output       FlushD, FlushE, FlushM
 );
 
-// ---------------- forwarding (Memory has priority: it holds the newer value) ----------------
+// Memory is checked first because it holds the newer value of the register
 always @(*) begin
     if      (RegWriteM && (RdM != 5'd0) && (RdM == Rs1E)) ForwardAE = 2'b10;
     else if (RegWriteW && (RdW != 5'd0) && (RdW == Rs1E)) ForwardAE = 2'b01;
@@ -30,14 +32,16 @@ always @(*) begin
     else                                                  ForwardBE = 2'b00;
 end
 
-// ---------------- load-use stall ----------------
 wire lwStall = ResultSrcE0 && (RdE != 5'd0) && ((Rs1D == RdE) || (Rs2D == RdE));
 
-assign StallF = lwStall;
-assign StallD = lwStall;
+assign StallF = lwStall | DivStallE;
+assign StallD = lwStall | DivStallE;
+assign StallE = DivStallE;
 
-// ---------------- flushes ----------------
 assign FlushD = PCSrcE;
-assign FlushE = lwStall | PCSrcE;
+// A divide is never a load or a branch, so this never clashes with StallE.
+// The guard is there so a held instruction can never be wiped by mistake.
+assign FlushE = (lwStall | PCSrcE) & ~DivStallE;
+assign FlushM = DivStallE;
 
 endmodule

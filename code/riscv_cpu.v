@@ -1,7 +1,6 @@
-
-// riscv_cpu.v - 5-stage pipelined RISC-V CPU Processor
-// The controller works on the instruction in DECODE (InstrD); the datapath carries
-// every control signal down the pipeline to the stage where it takes effect.
+// riscv_cpu.v - 5-stage pipelined RV32IM CPU (controller + datapath)
+// The controller decodes the instruction in Decode (InstrD). The datapath carries each
+// control signal down the pipeline to the stage that uses it.
 
 module riscv_cpu (
     input         clk, reset,
@@ -11,24 +10,24 @@ module riscv_cpu (
     output [31:0] Mem_WrAddr, Mem_WrData,
     input  [31:0] ReadData,
     output [31:0] Result,
-    output [ 2:0] funct3,              // funct3 of the instruction in MEMORY (for data_mem)
+    output [ 2:0] funct3,              // funct3 of the instruction in Memory (for data_mem)
     output [31:0] PCW, ALUResultW, WriteDataW
 );
 
 wire [31:0] InstrD;
-wire        ALUSrcD, RegWriteD, BranchD, JumpD, JalrD, MemWriteD;
+wire        ALUSrcD, RegWriteD, BranchD, JumpD, JalrD, MemWriteD, MulDivD;
 wire [ 1:0] ResultSrcD, ASelD;
 wire [ 2:0] ImmSrcD;
 wire [ 3:0] ALUControlD;
 
-controller  c   (InstrD[6:0], InstrD[14:12], InstrD[30],
+controller  c   (InstrD[6:0], InstrD[14:12], InstrD[30], InstrD[25],
                 ResultSrcD, MemWriteD, ALUSrcD,
-                RegWriteD, BranchD, JumpD, JalrD, ImmSrcD, ALUControlD, ASelD);
+                RegWriteD, BranchD, JumpD, JalrD, ImmSrcD, ALUControlD, ASelD, MulDivD);
 
 datapath    dp  (
     .clk(clk), .reset(reset),
     .ResultSrcD(ResultSrcD), .MemWriteD(MemWriteD), .ALUSrcD(ALUSrcD), .RegWriteD(RegWriteD),
-    .BranchD(BranchD), .JumpD(JumpD), .JalrD(JalrD),
+    .BranchD(BranchD), .JumpD(JumpD), .JalrD(JalrD), .MulDivD(MulDivD),
     .ImmSrcD(ImmSrcD), .ALUControlD(ALUControlD), .ASelD(ASelD),
     .InstrD(InstrD),
     .PC(PC), .Instr(Instr),

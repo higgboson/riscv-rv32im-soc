@@ -1,8 +1,10 @@
-// pipeline registers -> execute | memory stage (EX/MEM)
-// PCM is carried only so the testbench can see which instruction is in Writeback (PCW).
+// pl_reg_em.v - pipeline register between Execute and Memory (EX/MEM)
+// clr : put a bubble into Memory. Used while a divide holds Execute, so the
+//       instructions already ahead of it are not repeated.
+// PCM is carried only so the testbench can see which instruction reaches Writeback (PCW).
 
 module pl_reg_em (
-    input             clk,
+    input             clk, clr,
     input      [31:0] ALUResultE, WriteDataE, PCE,
     input      [ 4:0] RdE,
     input      [ 2:0] funct3E,
@@ -21,10 +23,14 @@ initial begin
 end
 
 always @(posedge clk) begin
-    ALUResultM <= ALUResultE; WriteDataM <= WriteDataE;
-    PCM <= PCE;
-    RdM <= RdE; funct3M <= funct3E;
-    RegWriteM <= RegWriteE; MemWriteM <= MemWriteE; ResultSrcM <= ResultSrcE;
+    if (clr) begin
+        ALUResultM <= 0; WriteDataM <= 0; PCM <= 0;
+        RdM <= 0; funct3M <= 0; RegWriteM <= 0; MemWriteM <= 0; ResultSrcM <= 0;
+    end else begin
+        ALUResultM <= ALUResultE; WriteDataM <= WriteDataE; PCM <= PCE;
+        RdM <= RdE; funct3M <= funct3E;
+        RegWriteM <= RegWriteE; MemWriteM <= MemWriteE; ResultSrcM <= ResultSrcE;
+    end
 end
 
 endmodule
