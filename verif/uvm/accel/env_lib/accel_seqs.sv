@@ -75,11 +75,22 @@ class accel_accum_seq extends accel_base_seq;
         int unsigned done = 0;
         while (done < n_jobs) begin
             int unsigned len = $urandom_range(2, 10);
+            // 1 chain in 4 uses only -128 and 127, so the sums grow past what one job can
+            // reach (closes the "huge result" coverage bins, random values average out)
+            bit extreme = ($urandom_range(3) == 0);
             for (int n = 0; n < len; n++) begin
                 accel_xtn t = make();
                 if (!t.randomize() with { clear == (n == 0); poke == 0;
                                           k dist { [1:16] :/ 30, [17:63] :/ 40, 64 := 30 }; })
                     `uvm_fatal("SEQ", "randomize failed")
+                if (extreme) begin
+                    t.reload_a = 1;
+                    for (int kk = 0; kk < 64; kk++)
+                        for (int i = 0; i < 4; i++) begin
+                            t.a[i][kk] = -128;
+                            t.b[kk][i] = (i % 2) ? 127 : -128;   // columns alternate sign
+                        end
+                end
                 send(t);
             end
             done += len;

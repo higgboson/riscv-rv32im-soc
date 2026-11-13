@@ -107,6 +107,12 @@ Independent checks, all run on every change:
 3. **Directed testbench** from e-Yantra: 38 instruction checks, all pass.
 4. **Accelerator unit test**: 1,000 random tiles (K = 1..64, edge values, accumulate mode),
    cycle-exact timing, plus a full-system check against the CPU's own result.
+5. **UVM** ([verif/uvm](verif/uvm/README.md)): one environment for the core and one for the
+   accelerator, for Xcelium + IMC. The core environment runs constrained-random programs
+   and the riscv-tests, and compares every commit against a C reference model (DPI-C).
+   It has SVA on the pipeline, and functional coverage on the ISA, hazards and branch
+   prediction. The accelerator environment uses a bus monitor, a reference model and
+   SVA on the run length.
 
 The random test was checked by planting bugs in the design (removing the load-use stall,
 breaking forwarding, wrong divide-by-zero result, missing pipeline bubble during divide,

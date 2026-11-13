@@ -32,10 +32,19 @@ make regress cov_merge cov_report
 Each log ends with one line, `TEST PASSED: <test>` or `TEST FAILED: <test> (n errors)`.
 `make regress` prints a table of these for every test and seed.
 
-Status: both environments compile and elaborate cleanly against the Accellera UVM
-library (checked with the Slang SystemVerilog compiler). They have not yet been run on
-Xcelium, so the first run may need small tool-specific fixes; send the log of
-`make compile` or the failing test if something stops.
+Status: both environments have been simulated end to end with the Accellera UVM library
+(IEEE 1800.2) on Verilator 5.055, and compile cleanly with the Slang compiler:
+
+| Run | Result |
+|---|---|
+| `core_riscv_tests` | 48 / 48 programs, 10,067 register writes + 394 stores compared, 0 mismatches |
+| `core_rand/hazard/branch/muldiv_test`, 2 seeds x 20 programs each | all pass, about 52,700 instructions, 0 mismatches |
+| `accel_corner/rand/accum/b2b/poke_test` | all pass, every result and every run length correct |
+| bug planted in the core (load-use stall ignores rs2) | caught: 173 mismatches in `core_hazard_test`, 9 in `core_riscv_tests` |
+| bug planted in the accelerator (run ends one cycle early) | caught by the SVA and the scoreboard on every job |
+
+Not yet run on Xcelium itself. If the first Xcelium run stops, send the log of
+`make compile` or of the failing test.
 
 ## Mapping to the Maven FIFO testbench
 

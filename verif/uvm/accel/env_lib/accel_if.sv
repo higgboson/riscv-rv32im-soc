@@ -36,12 +36,23 @@ interface accel_if (input bit clk);
     wire start_ok = ctrl_wr && wr_data[8] && !busy;   // the DUT ignores starts while busy
 
     // A run is exactly K + 6 cycles: K feed steps, 3 skew and 3 hop cycles to PE(3,3).
-    // n counts down once per busy cycle and must be 0 when busy drops.
+`ifndef VERILATOR
+    // n counts down once per busy cycle and must be 0 when busy drops
     property p_run_length;
         int n;
         @(posedge clk) disable iff (reset)
         (start_ok, n = wr_data[6:0] + 6) |=> (busy, n = n - 1) [*1:$] ##1 (!busy && n == 0);
     endproperty
+`else
+    // (no property local variables in that simulator) count the busy cycles in a register
+    logic [7:0] run_k, run_n;
+    always @(posedge clk)
+        if (start_ok) begin run_k <= 8'(wr_data[6:0]); run_n <= 0; end
+        else if (busy) run_n <= run_n + 1;
+    property p_run_length;
+        @(posedge clk) disable iff (reset) $fell(busy) |-> run_n == run_k + 6;
+    endproperty
+`endif
     a_run_length: assert property (p_run_length)
         else `uvm_error("SVA", "a run did not take K + 6 cycles")
 

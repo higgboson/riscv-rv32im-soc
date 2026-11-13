@@ -96,7 +96,12 @@ class core_coverage extends uvm_component;
                                                            pipe_item::E_JALR, pipe_item::E_LOAD};
         }
         LOAD_USE  : coverpoint p.load_use  { bins stall = {1}; }
-        DIV_STALL : coverpoint p.div_stall { bins stall = {1}; bins long_stall = (1 [*20]); }
+`ifndef VERILATOR
+        // a stall that lasts 20+ cycles (repetition in a transition bin: not in every simulator)
+        DIV_STALL : coverpoint p.div_stall { bins stall = {1}; bins long_stall = (0 => 1 [*20]); }
+`else
+        DIV_STALL : coverpoint p.div_stall { bins stall = {1}; }
+`endif
         // branch prediction: every combination of guess and outcome, for each jump kind
         GUESS : coverpoint {p.pred, p.taken} iff (p.eclass inside {pipe_item::E_BRANCH, pipe_item::E_JAL, pipe_item::E_JALR}) {
             bins nt_nt = {2'b00}; bins nt_t = {2'b01}; bins t_nt = {2'b10}; bins t_t = {2'b11};

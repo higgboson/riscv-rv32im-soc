@@ -16,6 +16,11 @@
 #include <stdint.h>
 #include <string.h>
 
+// keep plain C names if a simulator compiles this file as C++
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define IMEM_WORDS (64 * 1024)          // 256 KB, more than the CPU has
 #define DMEM_BYTES (256 * 1024)
 #define IO_BASE    0x10000000u
@@ -194,3 +199,7 @@ int iss_step(uint32_t *o_pc, uint32_t *o_insn,
     pc = next;
     return 1;
 }
+
+#ifdef __cplusplus
+}
+#endif

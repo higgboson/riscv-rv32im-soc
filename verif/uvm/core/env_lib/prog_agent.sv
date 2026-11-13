@@ -45,15 +45,18 @@ class prog_driver extends uvm_driver #(rv_program);
         prog_marker m;
         bit timed_out = 0;
 
-        // 1. reset and load
+        // 1. reset and load. Load first and keep reset on for a few more edges: the imem agent
+        // reads memory on these same edges, and loading on the release edge was a race
+        // (the first instruction could come from the previous program).
         vif.ctrl_cb.reset <= 1'b1;
-        repeat (4) @(vif.ctrl_cb);
+        @(vif.ctrl_cb);
         cfg.imem.clear();
         cfg.dmem.clear();
         foreach (p.code[i])
             cfg.imem.write_word(i * 4, p.code[i]);
         foreach (p.data_words[a])
             cfg.dmem.write_word(a, p.data_words[a]);
+        repeat (4) @(vif.ctrl_cb);
 
         // 2. the scoreboard's reference model gets the same image
         m = prog_marker::type_id::create("start");

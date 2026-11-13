@@ -35,6 +35,7 @@ class commit_monitor extends uvm_monitor;
                 c.rd    = vif.mon_cb.RdW;
                 c.value = vif.mon_cb.ResultW;
                 c.pc    = vif.mon_cb.PCW;
+                `uvm_info("COMMIT", $sformatf("pc %h  x%0d = %h", c.pc, c.rd, c.value), UVM_HIGH)
                 ap.write(c);
             end
         end

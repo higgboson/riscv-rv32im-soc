@@ -18,3 +18,8 @@ fpga/basys3/build/
 *.jou
 *.log
 .Xil/
+verif/uvm/*/sim/obj_vl/
+verif/uvm/*/sim/logs/
+verif/uvm/*/sim/xcelium.d/
+verif/uvm/*/sim/cov_work/
+verif/uvm/*/sim/reports/
