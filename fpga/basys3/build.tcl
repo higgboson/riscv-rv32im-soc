@@ -2,6 +2,8 @@
 #
 # From the repository root, in a terminal where Vivado is on the PATH:
 #   vivado -mode batch -source fpga/basys3/build.tcl
+# or in the Vivado Tcl Shell, after cd to the repository root:
+#   source fpga/basys3/build.tcl
 # Optional: CPU clock in MHz (1000 / MHz must be a multiple of 0.125), and the program to
 # build into the bitstream (a folder with imem.hex + dmem0..3.hex, default sw/prebuilt/demo):
 #   vivado -mode batch -source fpga/basys3/build.tcl -tclargs 62.5
@@ -17,8 +19,9 @@ set part       xc7a35tcpg236-1
 
 set clk_mhz 50
 set fw_dir  "$root/sw/prebuilt/demo"
-if {$argc > 0} { set clk_mhz [lindex $argv 0] }
-if {$argc > 1} { set fw_dir [file normalize [lindex $argv 1]] }
+# argc / argv only exist when started with -tclargs; "source" from the Tcl Shell works too
+if {[info exists argc] && $argc > 0} { set clk_mhz [lindex $argv 0] }
+if {[info exists argc] && $argc > 1} { set fw_dir [file normalize [lindex $argv 1]] }
 set clk_hz [expr {int($clk_mhz * 1000000)}]
 
 file mkdir $build_dir
