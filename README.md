@@ -96,7 +96,7 @@ only ~2,400 cycles. A DMA engine is the natural next step.
 
 ## Verification
 
-Three independent checks, all run on every change:
+Independent checks, all run on every change:
 
 1. **Official riscv-tests**: all 48 `rv32ui` and `rv32um` tests pass, with branch prediction
    on and off (`fence_i` and `ma_data` are skipped on purpose, see below).
@@ -210,6 +210,7 @@ sw/prebuilt/      hello, bench, demo, ready to load (no RISC-V compiler needed)
 sw/load.py        sends a program to the board over USB-UART
 verif/            riscv-tests runner, random test generator + reference model, board-level
                   testbench with a UART model, testbenches
+verif/uvm/        UVM environments for the core and the accelerator (Xcelium + IMC)
 .test/tb.v        original e-Yantra directed testbench
 docs/             design notes for each phase
 ```

@@ -1,0 +1,8 @@
+# test                seed        jobs per sequence
+accel_corner_test     1           1
+accel_rand_test       1           300
+accel_rand_test       2           300
+accel_accum_test      11          200
+accel_b2b_test        21          200
+accel_poke_test       31          100
+accel_full_test       41          150

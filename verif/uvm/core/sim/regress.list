@@ -1,0 +1,11 @@
+# test                seed        programs
+core_riscv_tests      1           1
+core_rand_test        1           30
+core_rand_test        2           30
+core_rand_test        3           30
+core_hazard_test      11          30
+core_hazard_test      12          30
+core_branch_test      21          30
+core_branch_test      22          30
+core_muldiv_test      31          30
+core_muldiv_test      32          30

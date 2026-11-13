@@ -1,0 +1,23 @@
+// rtl.f - the CPU core under test (paths from verif/uvm/core/sim)
+../../../../code/riscv_cpu.v
+../../../../code/components/adder.v
+../../../../code/components/alu.v
+../../../../code/components/alu_decoder.v
+../../../../code/components/branch_predictor.v
+../../../../code/components/branching_unit.v
+../../../../code/components/controller.v
+../../../../code/components/datapath.v
+../../../../code/components/hazard_unit.v
+../../../../code/components/imm_extend.v
+../../../../code/components/load_extend.v
+../../../../code/components/main_decoder.v
+../../../../code/components/muldiv_unit.v
+../../../../code/components/mux2.v
+../../../../code/components/mux3.v
+../../../../code/components/mux4.v
+../../../../code/components/pl_reg_de.v
+../../../../code/components/pl_reg_em.v
+../../../../code/components/pl_reg_fd.v
+../../../../code/components/pl_reg_mw.v
+../../../../code/components/reg_file.v
+../../../../code/components/reset_ff.v
