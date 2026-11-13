@@ -10,7 +10,8 @@
 #   vivado -mode batch -source fpga/basys3/build.tcl -tclargs 50 sw/prebuilt/hello
 # Other programs can be sent later without rebuilding: python sw/load.py COM5 bench
 #
-# Output in fpga/basys3/build/: basys3_rv32im.bit plus timing / utilisation reports.
+# Output in fpga/basys3/build/: basys3_rv32im.bit, routed.dcp (open it in the Vivado GUI)
+# and timing / utilisation reports.
 
 set script_dir [file dirname [file normalize [info script]]]
 set root       [file normalize "$script_dir/../.."]
@@ -48,6 +49,10 @@ report_utilization    -file utilization.rpt
 report_utilization    -hierarchical -file utilization_hier.rpt
 
 write_bitstream -force basys3_rv32im.bit
+
+# The finished design, for looking at in the Vivado GUI:
+# File > Checkpoint > Open > fpga/basys3/build/routed.dcp (floorplan, timing paths, schematic)
+write_checkpoint -force routed.dcp
 
 # short summary on the console
 set wns [get_property SLACK [get_timing_paths -delay_type max]]
