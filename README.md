@@ -133,6 +133,19 @@ python sw/load.py COM5 bench                         # load another program, see
 After reset the demo prints the benchmark table measured on the board, shows the CPI on
 the 7-segment display ("1.20"), and lets the switches drive the LEDs.
 
+![Benchmarks running on the Basys 3, output over USB-UART](docs/images/basys3_uart_benchmarks.png)
+
+The board reports 276,798 cycles for the whole suite, exactly the same as RTL simulation.
+
+| Basys 3 (XC7A35T-1, Vivado 2026.1) | |
+|---|---|
+| CPU clock | 50 MHz from the MMCM, timing met (worst slack +2.72 ns, about 58 MHz max) |
+| Slice LUTs | 1,939 / 20,800 (9.3 %) |
+| Slice registers | 1,207 / 41,600 (2.9 %) |
+| Block RAM | 9 tiles (16 KB IMEM + 16 KB DMEM) |
+| DSP48E1 | 4 (single-cycle multiplier) |
+| Critical path | forwarding compare -> ALU / multiplier -> EX/MEM register |
+
 ## How to run (simulation)
 
 Needs `iverilog`, `python3` and a RISC-V GCC (`riscv64-unknown-elf-gcc`, or the xPack
