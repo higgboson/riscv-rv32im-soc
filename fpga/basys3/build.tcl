@@ -34,9 +34,11 @@ foreach f {imem.hex dmem0.hex dmem1.hex dmem2.hex dmem3.hex} {
     file copy -force "$fw_dir/$f" $build_dir
 }
 
+# Paths go in as Tcl lists: a plain string with spaces (e.g. "C:/Users/My Name/...")
+# would be split into several file names
 read_verilog [glob $root/code/*.v $root/code/components/*.v $root/code/io/*.v]
-read_verilog "$script_dir/basys3_top.v"
-read_xdc     "$script_dir/basys3.xdc"
+read_verilog [list "$script_dir/basys3_top.v"]
+read_xdc     [list "$script_dir/basys3.xdc"]
 
 synth_design -top basys3_top -part $part -generic CLK_HZ=$clk_hz
 opt_design
