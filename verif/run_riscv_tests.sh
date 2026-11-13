@@ -35,7 +35,9 @@ for t in "$TESTS"/isa/rv32ui/*.S "$TESTS"/isa/rv32um/*.S; do
 
     d=$WORK/$name
     mkdir -p "$d"
-    ${CROSS}gcc -march=rv32im -mabi=ilp32 -nostdlib -nostartfiles \
+    # --no-relax: the tests keep the test number in gp, so the linker must not turn
+    # "la" into gp-relative addressing (our link.ld defines a global pointer)
+    ${CROSS}gcc -march=rv32im -mabi=ilp32 -nostdlib -nostartfiles -Wl,--no-relax \
         -I"$HERE/riscv-tests-env" -I"$TESTS/isa/macros/scalar" \
         -T "$ROOT/sw/common/link.ld" "$t" -o "$d/test.elf"
     python3 "$ROOT/sw/elf2hex.py" "$d/test.elf" "$d" "${CROSS}objcopy"
