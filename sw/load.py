@@ -83,10 +83,19 @@ def main():
     except ImportError:
         sys.exit('pyserial is missing: pip install pyserial')
 
-    with serial.Serial(args.port, args.baud, timeout=0.1) as port:
+    # No flow control: the board has no RTS/CTS lines. write_timeout stops a stuck
+    # driver from hanging the script forever.
+    with serial.Serial(args.port, args.baud, timeout=0.1, write_timeout=5,
+                       rtscts=False, dsrdtr=False, xonxoff=False) as port:
         port.reset_input_buffer()
-        port.write(packet)
-        port.flush()
+        print('sending...', flush=True)
+        try:
+            for i in range(0, len(packet), 256):
+                port.write(packet[i:i + 256])
+        except serial.SerialTimeoutException:
+            sys.exit('could not send: the port accepts no data. Close PuTTY or other '
+                     'programs using %s, unplug and replug the board, and try again' % args.port)
+        print('sent, waiting for the board to answer...', flush=True)
 
         # wait for the loader's answer: 'K' = loaded and running, 'E' = checksum error
         deadline = time.time() + 3 + len(packet) * 10 / args.baud
