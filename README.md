@@ -133,6 +133,8 @@ python sw/load.py COM5 bench                         # load another program, see
 After reset the demo prints the benchmark table measured on the board, shows the CPI on
 the 7-segment display ("1.20"), and lets the switches drive the LEDs.
 
+![The CPU running on a Basys 3: benchmarks rerun (A002, A003), switches drive the LEDs, cycle count / CPI on the display](docs/images/basys3_demo.gif)
+
 ![Benchmarks running on the Basys 3, output over USB-UART](docs/images/basys3_uart_benchmarks.png)
 
 The board reports 276,798 cycles for the whole suite, exactly the same as RTL simulation.
