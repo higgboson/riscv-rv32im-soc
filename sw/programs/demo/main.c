@@ -3,8 +3,9 @@
 // 1. prints a banner and runs the benchmark table on the real hardware (over USB-UART)
 // 2. shows the measured CPI on the 7-segment display, e.g. "1.20"
 // 3. then stays interactive:
-//      switches 0-12 -> LEDs 0-12
-//      btnU          -> run the benchmarks again
+//      switches      -> LEDs (all 16)
+//      btnU          -> run the benchmarks again (the run number shows for a second;
+//                       the suite itself only takes about 6 ms at 50 MHz)
 //      btnL          -> show the total cycle count (low 4 hex digits) instead of CPI
 // A new program can be sent at any time with sw/load.py.
 
@@ -26,6 +27,15 @@ static uint32_t to_bcd(uint32_t v)
 }
 
 static perf_t total;
+static uint32_t runs;
+
+// busy-wait using the cycle counter (50 MHz board clock)
+static void wait_ms(uint32_t ms)
+{
+    uint32_t start = PERF_CYCLES;
+    while (PERF_CYCLES - start < ms * 50000u)
+        ;
+}
 
 static void show_cpi(void)
 {
@@ -35,10 +45,14 @@ static void show_cpi(void)
 
 static void run_all(void)
 {
-    IO_HEX = 0;
-    print_str("\nRunning benchmarks...\n");
+    runs++;
+    IO_HEX = 0xA000 | to_bcd(runs);    // "A" + run number, e.g. "A002"
+    print_str("\nRun ");
+    print_dec(runs);
+    print_str(": running benchmarks...\n");
     int errors = run_benchmarks(&total);
     print_str(errors ? "SOME RESULTS WRONG\n" : "all results correct\n");
+    wait_ms(1000);                     // keep the run number visible for a moment
     show_cpi();
 }
 
@@ -49,7 +63,7 @@ int main(void)
     print_str(" branch prediction, hardware performance counters\n");
     print_str("================================================\n");
     print_str("btnU: run benchmarks again   btnL: show cycles / CPI\n");
-    print_str("switches 0-12 drive the LEDs\n");
+    print_str("switches drive the LEDs\n");
 
     run_all();
 
@@ -57,7 +71,7 @@ int main(void)
     int show_cycles = 0;
 
     for (;;) {
-        IO_LEDS = IO_SWITCHES & 0x1FFF;
+        IO_LEDS = IO_SWITCHES;
 
         // act on a button when it goes down, not while it is held
         uint32_t b = IO_BUTTONS;
