@@ -16,7 +16,7 @@ RTL=$HERE/../code
 WORK=$HERE/work
 
 mkdir -p "$WORK"
-iverilog -g2005 $VFLAGS -o "$WORK/rsim" "$HERE/tb_random.v" "$RTL"/*.v "$RTL"/components/*.v "$RTL"/io/*.v
+iverilog -g2005 $VFLAGS -o "$WORK/rsim" "$HERE/tb_random.v" "$RTL"/*.v "$RTL"/components/*.v "$RTL"/io/*.v "$RTL"/accel/*.v
 cd "$WORK"
 
 pass=0; fail=0; total=0

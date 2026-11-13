@@ -4,7 +4,7 @@
 #   make PROG=hello sim        compile and run it on the RTL (Icarus Verilog)
 #   make PROG=hello install    copy its hex files into code/ so Quartus loads them
 #   make PROG=bench sim VFLAGS=-DNO_BPRED   run with branch prediction switched off
-#   make prebuilt              rebuild sw/prebuilt/ (hello, bench, demo)
+#   make prebuilt              rebuild sw/prebuilt/ (hello, bench, demo, matmul)
 #
 # On Windows the xPack toolchain is called riscv-none-elf-: use  make CROSS=riscv-none-elf- ...
 
@@ -35,12 +35,12 @@ $(OUT)/imem.hex: $(OUT)/$(PROG).elf
 	python3 elf2hex.py $< $(OUT) $(OBJCOPY)
 
 sim: $(OUT)/imem.hex
-	iverilog -g2005 $(VFLAGS) -o $(OUT)/sim ../verif/tb_program.v $(RTL)/*.v $(RTL)/components/*.v $(RTL)/io/*.v
+	iverilog -g2005 $(VFLAGS) -o $(OUT)/sim ../verif/tb_program.v $(RTL)/*.v $(RTL)/components/*.v $(RTL)/io/*.v $(RTL)/accel/*.v
 	cd $(OUT) && vvp -n sim
 
 # Prebuilt programs, kept in git so the board can be used without a RISC-V compiler
 # (sw/load.py and fpga/basys3/build.tcl read them from sw/prebuilt/)
-PREBUILT = hello bench demo
+PREBUILT = hello bench demo matmul
 prebuilt:
 	for p in $(PREBUILT); do \
 	    $(MAKE) -s PROG=$$p && mkdir -p prebuilt/$$p && cp build/$$p/*.hex prebuilt/$$p/ ; \

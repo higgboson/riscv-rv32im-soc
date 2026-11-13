@@ -27,6 +27,7 @@ rebuilding the bitstream.
 | Software | GCC (`-march=rv32im`), linker script, startup code, small console library |
 | FPGA | Basys 3 (Artix-7 XC7A35T): MMCM clocking, UART console, 7-segment display, LEDs, switches, buttons |
 | Program loader | hardware UART loader with checksum: `python sw/load.py COM5 bench` |
+| Accelerator | 4x4 INT8 systolic array (16 MACs/cycle), memory mapped, C driver: **10.5x** faster 32x32 matmul |
 
 ## Block diagram
 
@@ -58,6 +59,7 @@ See [`assets/architecture.pdf`](assets/architecture.pdf) for the pipeline datapa
 | `0x1000_0028` | | SWITCHES |
 | `0x1000_002C` | | BUTTONS |
 | `0x1000_0030` | | UART_RX: received byte |
+| `0x2000_0000` | | Matrix accelerator: CTRL, A / B buffers, C results (see `docs/accelerator_notes.md`) |
 
 ## Branch prediction results
 
@@ -78,6 +80,20 @@ Total cycles 350,096 -> 276,800: **1.26x faster**. matmul stays at 1.49 because 
 `%` (a 33-cycle divide) 512 times, not because of branches. fib keeps the most mispredicts
 because function returns (`jalr`) are not predicted; a return address stack would fix that.
 
+## Matrix-multiply accelerator
+
+A 4x4 systolic array of INT8 multiply-accumulate units: A flows right, B flows down, each
+processing element keeps one element of C. 16 multiply-adds per cycle, a 4x4 tile with K
+steps takes K + 6 cycles. Details and design reasoning: [`docs/accelerator_notes.md`](docs/accelerator_notes.md).
+
+| 32x32x32 INT8 matmul (`sw/programs/matmul`) | Cycles |
+|---|---|
+| CPU only | 238,905 |
+| CPU + accelerator | 22,806 (**10.5x faster**, results identical) |
+
+About 90 % of the accelerated time is the CPU moving data in and out; the array computes for
+only ~2,400 cycles. A DMA engine is the natural next step.
+
 ## Verification
 
 Three independent checks, all run on every change:
@@ -89,6 +105,8 @@ Three independent checks, all run on every change:
    The full commit log (every register write and every store, in order) and the final state
    must match. 120 programs, ~46,600 instructions, 0 mismatches.
 3. **Directed testbench** from e-Yantra: 38 instruction checks, all pass.
+4. **Accelerator unit test**: 1,000 random tiles (K = 1..64, edge values, accumulate mode),
+   cycle-exact timing, plus a full-system check against the CPU's own result.
 
 The random test was checked by planting bugs in the design (removing the load-use stall,
 breaking forwarding, wrong divide-by-zero result, missing pipeline bubble during divide,
@@ -173,7 +191,7 @@ verif/run_board_tests.sh
 verif/run_all.sh
 
 # original e-Yantra testbench (run from code/ so it finds imem.hex)
-cd code && iverilog -g2005 -o tb ../.test/tb.v *.v components/*.v io/*.v && vvp tb
+cd code && iverilog -g2005 -o tb ../.test/tb.v *.v components/*.v io/*.v accel/*.v && vvp tb
 ```
 
 To put a C program on the FPGA: `make PROG=hello install` copies its hex files into `code/`,
@@ -185,6 +203,7 @@ then compile in Quartus.
 code/             RTL: soc.v (CPU + memories + I/O), pl_riscv_cpu.v (e-Yantra wrapper)
 code/components/  pipeline blocks: datapath, hazard unit, ALU, mul/div unit, branch predictor
 code/io/          UART TX/RX, UART program loader, 7-segment driver
+code/accel/       INT8 systolic-array matrix-multiply accelerator
 fpga/basys3/      Basys 3 top level, pin constraints, Vivado build / program scripts
 sw/               C toolchain: link.ld, crt0.S, console library, programs/, Makefile
 sw/prebuilt/      hello, bench, demo, ready to load (no RISC-V compiler needed)
@@ -209,7 +228,8 @@ docs/             design notes for each phase
 - [x] Phase 1: RV32M, block-RAM memories, MMIO, C toolchain, riscv-tests
 - [x] Phase 2: performance counters, branch prediction (BTB + 2-bit counters), benchmarks
 - [x] Basys 3: UART console, display / LEDs / switches, UART program loader
-- [ ] INT8 systolic-array accelerator, memory mapped, driven from C
+- [x] INT8 systolic-array accelerator, memory mapped, driven from C
+- [ ] DMA for the accelerator (it fetches its own data)
 - [ ] RTL-to-GDSII of the core with OpenLane (SkyWater 130 nm)
 - [ ] Interrupts and CSRs (timer interrupt, trap handling)
 - [ ] Games: Snake / Tetris in the UART terminal, then a VGA framebuffer (Pong / Snake on a monitor)

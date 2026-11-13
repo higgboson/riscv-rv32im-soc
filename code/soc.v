@@ -59,10 +59,18 @@ riscv_cpu rvcpu    (clk, core_reset, PC, Instr,
 
 instr_mem instrmem (clk, PC, Instr, ld_imem_we, ld_waddr, ld_wdata);
 
-// Top 4 address bits = 0x1 -> I/O. Everything else -> data memory.
-wire is_mmio = (DataAdr[31:28] == 4'h1);
+// Top 4 address bits: 0x1 -> I/O, 0x2 -> matrix accelerator, anything else -> data memory
+wire is_mmio  = (DataAdr[31:28] == 4'h1);
+wire is_accel = (DataAdr[31:28] == 4'h2);
+wire [31:0] accel_rdata;
 
-data_mem  datamem  (clk, MemWrite & ~is_mmio, Store, DataAdr, WriteData, dmem_rdata);
+data_mem  datamem  (clk, MemWrite & ~is_mmio & ~is_accel, Store, DataAdr, WriteData, dmem_rdata);
+
+matmul_accel accel (
+    .clk(clk), .reset(core_reset),
+    .wr_en(MemWrite & is_accel), .addr(DataAdr), .wr_data(WriteData),
+    .rd_data(accel_rdata)
+);
 
 mmio #(.CLK_HZ(CLK_HZ), .BAUD(BAUD)) io (
     .clk(clk), .reset(core_reset), .uart_reset(reset),
@@ -75,7 +83,7 @@ mmio #(.CLK_HZ(CLK_HZ), .BAUD(BAUD)) io (
     .tohost(tohost), .tohost_valid(tohost_valid)
 );
 
-assign ReadData  = is_mmio ? mmio_rdata : dmem_rdata;
+assign ReadData  = is_mmio ? mmio_rdata : is_accel ? accel_rdata : dmem_rdata;
 
 // While the CPU is in reset, data memory can be written from outside: by a testbench
 // (Ext_*, e-Yantra) or by the loader. CPU stores are blocked then, so a store that was

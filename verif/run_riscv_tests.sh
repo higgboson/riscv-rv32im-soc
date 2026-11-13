@@ -26,7 +26,7 @@ if [ ! -d "$TESTS/isa" ]; then
 fi
 
 mkdir -p "$WORK"
-iverilog -g2005 $VFLAGS -o "$WORK/sim" "$HERE/tb_program.v" "$ROOT"/code/*.v "$ROOT"/code/components/*.v "$ROOT"/code/io/*.v
+iverilog -g2005 $VFLAGS -o "$WORK/sim" "$HERE/tb_program.v" "$ROOT"/code/*.v "$ROOT"/code/components/*.v "$ROOT"/code/io/*.v "$ROOT"/code/accel/*.v
 
 pass=0; fail=0
 for t in "$TESTS"/isa/rv32ui/*.S "$TESTS"/isa/rv32um/*.S; do

@@ -18,7 +18,7 @@ python3 "$ROOT/sw/load.py" hello --dump "$WORK/hello.pkt" > /dev/null
 
 compile() {   # $1 = folder holding the hex files the "bitstream" starts with
     iverilog -g2005 -o "$1/sim" "$HERE/tb_basys3.v" "$ROOT/fpga/basys3/basys3_top.v" \
-        "$ROOT"/code/*.v "$ROOT"/code/components/*.v "$ROOT"/code/io/*.v
+        "$ROOT"/code/*.v "$ROOT"/code/components/*.v "$ROOT"/code/io/*.v "$ROOT"/code/accel/*.v
 }
 
 pass=0; fail=0

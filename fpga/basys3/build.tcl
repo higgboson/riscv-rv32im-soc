@@ -36,7 +36,7 @@ foreach f {imem.hex dmem0.hex dmem1.hex dmem2.hex dmem3.hex} {
 
 # Paths go in as Tcl lists: a plain string with spaces (e.g. "C:/Users/My Name/...")
 # would be split into several file names
-read_verilog [glob $root/code/*.v $root/code/components/*.v $root/code/io/*.v]
+read_verilog [glob $root/code/*.v $root/code/components/*.v $root/code/io/*.v $root/code/accel/*.v]
 read_verilog [list "$script_dir/basys3_top.v"]
 read_xdc     [list "$script_dir/basys3.xdc"]
 
