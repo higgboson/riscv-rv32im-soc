@@ -210,3 +210,4 @@ docs/             design notes for each phase
 - [ ] INT8 systolic-array accelerator, memory mapped, driven from C
 - [ ] RTL-to-GDSII of the core with OpenLane (SkyWater 130 nm)
 - [ ] Interrupts and CSRs (timer interrupt, trap handling)
+- [ ] Games: Snake / Tetris in the UART terminal, then a VGA framebuffer (Pong / Snake on a monitor)
