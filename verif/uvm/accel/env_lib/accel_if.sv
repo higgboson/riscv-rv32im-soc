@@ -10,8 +10,8 @@ interface accel_if (input bit clk);
     import uvm_pkg::*;
     `include "uvm_macros.svh"
 
-    logic        reset;
-    logic        wr_en, rd_en;
+    logic        reset = 1'b1;          // known from time 0, before the driver starts
+    logic        wr_en = 1'b0, rd_en = 1'b0;
     logic [31:0] addr, wr_data, rd_data;
     logic        busy;
 
