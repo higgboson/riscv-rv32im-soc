@@ -17,10 +17,10 @@ VERB    ?= UVM_LOW
 UVMHOME ?= CDNS-1.2
 
 # -coverage all: code coverage (block, expression, toggle, FSM) on the DUT, functional
-# coverage (covergroups) and assertion coverage; -covdut limits code coverage to the accelerator
+# coverage (covergroups) and assertion coverage; -covdut top keeps the DUT and the interface (its SVA lives there)
 COMPILE_OPTS = -64bit -sv -uvm -uvmhome $(UVMHOME) -timescale 1ns/1ps -access +rwc \
                -f rtl.f -f tb.f -top top \
-               -coverage all -covdut matmul_accel
+               -coverage all -covdut top
 
 RUN_OPTS = -R -64bit +UVM_TESTNAME=$(TEST) +UVM_VERBOSITY=$(VERB) +NJOBS=$(NJOBS) \
            -svseed $(SEED) -covworkdir cov_work -covscope scope \
