@@ -9,7 +9,7 @@ typedef uvm_sequencer #(accel_xtn) accel_sequencer;
 class accel_driver extends uvm_driver #(accel_xtn);
     `uvm_component_utils(accel_driver)
 
-    virtual accel_if.DRV vif;
+    virtual accel_if vif;
     int unsigned jobs;
 
     function new(string name, uvm_component parent);
@@ -115,7 +115,7 @@ endclass
 class accel_monitor extends uvm_monitor;
     `uvm_component_utils(accel_monitor)
 
-    virtual accel_if.MON vif;
+    virtual accel_if vif;
     uvm_analysis_port #(accel_xtn) ap;
 
     // copies of the operand buffers, built from the writes seen on the bus
