@@ -1,0 +1,11 @@
+{
+    "DESIGN_NAME": "riscv_cpu",
+    "VERILOG_FILES": [
+        "dir::../../code/riscv_cpu.v",
+        "dir::../../code/components/*.v"
+    ],
+    "CLOCK_PORT": "clk",
+    "CLOCK_PERIOD": 40,
+    "FP_CORE_UTIL": 40,
+    "PL_TARGET_DENSITY_PCT": 50
+}
