@@ -32,19 +32,70 @@ make regress cov_merge cov_report
 Each log ends with one line, `TEST PASSED: <test>` or `TEST FAILED: <test> (n errors)`.
 `make regress` prints a table of these for every test and seed.
 
-Status: both environments have been simulated end to end with the Accellera UVM library
-(IEEE 1800.2) on Verilator 5.055, and compile cleanly with the Slang compiler:
+## Results (Xcelium 24.09, UVM 1.2, IMC)
 
 | Run | Result |
 |---|---|
-| `core_riscv_tests` | 48 / 48 programs, 10,067 register writes + 394 stores compared, 0 mismatches |
-| `core_rand/hazard/branch/muldiv_test`, 2 seeds x 20 programs each | all pass, about 52,700 instructions, 0 mismatches |
-| `accel_corner/rand/accum/b2b/poke_test` | all pass, every result and every run length correct |
-| bug planted in the core (load-use stall ignores rs2) | caught: 173 mismatches in `core_hazard_test`, 9 in `core_riscv_tests` |
-| bug planted in the accelerator (run ends one cycle early) | caught by the SVA and the scoreboard on every job |
+| `core_riscv_tests` | 48 / 48 official ISA programs pass inside UVM, 0 mismatches against the C model |
+| core regression (5 tests, 10 seeds) | **10 / 10 pass**, every register write and store compared |
+| core functional coverage | **235 / 235 bins (100%)**, 7 / 7 pipeline assertions pass |
+| core code coverage | block ~100%, toggle 87% before exclusions; the holes are upper PC bits that a 4 KB program cannot reach, waived with written reasons |
+| accelerator regression (7 tests) | **7 / 7 pass**: 620 jobs in `accel_full_test`, 0 wrong results, 0 wrong run lengths, 166 ignored starts checked |
+| accelerator coverage | covergroups 100%, all 16 PEs 100% code coverage, 6 / 6 assertions pass, 4 / 4 cover properties hit |
+| bug planted in the core (load-use stall ignores rs2) | caught: **889 mismatches** in 10 programs, `TEST FAILED` |
+| bug planted in the accelerator (run ends one cycle early) | caught on every job by the SVA (`a_run_length`) and the scoreboard ("took 69 cycles, expected 70") |
 
-Not yet run on Xcelium itself. If the first Xcelium run stops, send the log of
-`make compile` or of the failing test.
+Both environments also run on the free Verilator simulator (5.036+) with
+`run_verilator.sh`, which is how they were first brought up.
+
+### Core
+
+Regression and the official riscv-tests:
+
+![core regression](../../docs/images/uvm/core_regression.png)
+![riscv-tests in UVM](../../docs/images/uvm/core_riscv_tests_pass.png)
+
+Merged coverage in IMC: every covergroup at 100%, assertions at 100%:
+
+![core coverage](../../docs/images/uvm/core_imc_hierarchy.png)
+
+Coverage closure on the PC + 4 adder: each toggle hole is excluded with a design reason
+(constant input, word-aligned bits, address bits beyond the 4 KB test memory):
+
+![pcadd4 before](../../docs/images/uvm/core_pcadd4_before.png)
+![pcadd4 after](../../docs/images/uvm/core_pcadd4_after.png)
+
+Bug injection: the load-use stall was broken on purpose (`Rs2D == RdE` check removed).
+The scoreboard reports each wrong register write and store with the PC, then fails the test:
+
+![core bug caught](../../docs/images/uvm/core_bug_injection_errors.png)
+![core bug summary](../../docs/images/uvm/core_bug_injection_summary.png)
+
+Waveforms (SimVision): a load-use stall (StallF / StallD for one cycle with a bubble in
+Execute), two branch mispredicts flushing Execute, and the divider holding the pipeline:
+
+![load-use and mispredict](../../docs/images/uvm/core_wave_loaduse_mispredict.png)
+![divide stall](../../docs/images/uvm/core_wave_divide_stall.png)
+
+### Accelerator
+
+![accel regression](../../docs/images/uvm/accel_regression.png)
+![accel scoreboard](../../docs/images/uvm/accel_scoreboard_summary.png)
+
+Cross coverage of K x clear, the extreme INT8 products and the result ranges
+(the huge bins are only reachable by accumulating over several jobs):
+
+![K x CLEAR](../../docs/images/uvm/accel_cov_k_x_clear.png)
+![products](../../docs/images/uvm/accel_cov_products.png)
+![results](../../docs/images/uvm/accel_cov_results.png)
+
+Assertions and cover properties in IMC:
+
+![accel assertions](../../docs/images/uvm/accel_assertions.png)
+
+Bug injection: the run was shortened by one cycle. Both the SVA and the scoreboard catch it:
+
+![accel bug caught](../../docs/images/uvm/accel_bug_injection.png)
 
 ## Mapping to the Maven FIFO testbench
 

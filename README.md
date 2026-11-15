@@ -11,6 +11,10 @@ counters and a full verification flow. Runs on a **Digilent Basys 3 (Xilinx Arti
 UART console and a UART program loader, so new programs load in under a second without
 rebuilding the bitstream.
 
+Verified with two **UVM** environments on Cadence Xcelium (constrained-random programs checked
+commit by commit against a C reference model over DPI-C, SVA, functional and code coverage in
+IMC), with planted bugs to prove the testbenches catch real failures.
+
 ## Features
 
 | Area | Details |
@@ -28,6 +32,7 @@ rebuilding the bitstream.
 | FPGA | Basys 3 (Artix-7 XC7A35T): MMCM clocking, UART console, 7-segment display, LEDs, switches, buttons |
 | Program loader | hardware UART loader with checksum: `python sw/load.py COM5 bench` |
 | Accelerator | 4x4 INT8 systolic array (16 MACs/cycle), memory mapped, C driver: **10.5x** faster 32x32 matmul |
+| Verification | UVM on Xcelium + IMC: 48/48 riscv-tests in UVM, 17/17 regression tests pass, 100% functional coverage, SVA, bug injection |
 
 ## Block diagram
 
@@ -112,7 +117,10 @@ Independent checks, all run on every change:
    and the riscv-tests, and compares every commit against a C reference model (DPI-C).
    It has SVA on the pipeline, and functional coverage on the ISA, hazards and branch
    prediction. The accelerator environment uses a bus monitor, a reference model and
-   SVA on the run length.
+   SVA on the run length. Results on Xcelium 24.09: core 10/10 and accelerator 7/7
+   regression tests pass, 100% covergroup coverage on both, every assertion passing, and
+   both planted bugs caught (889 mismatches for a broken load-use stall; every job for a
+   run shortened by one cycle). Screenshots in the [UVM README](verif/uvm/README.md).
 
 The random test was checked by planting bugs in the design (removing the load-use stall,
 breaking forwarding, wrong divide-by-zero result, missing pipeline bubble during divide,
