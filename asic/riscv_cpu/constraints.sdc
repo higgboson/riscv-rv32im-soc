@@ -2,7 +2,7 @@
 # Without this file the flow uses a generic default, which models the pins badly and
 # causes slew / capacitance warnings on the I/O nets.
 
-set clk_period 40.0
+set clk_period 50.0
 create_clock -name clk -period $clk_period [get_ports clk]
 set_clock_uncertainty 0.25 [get_clocks clk]
 set_clock_transition  0.15 [get_clocks clk]

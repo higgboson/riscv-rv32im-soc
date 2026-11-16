@@ -5,7 +5,7 @@
         "dir::../../code/components/*.v"
     ],
     "CLOCK_PORT": "clk",
-    "CLOCK_PERIOD": 40,
+    "CLOCK_PERIOD": 50,
     "PNR_SDC_FILE": "dir::constraints.sdc",
     "SIGNOFF_SDC_FILE": "dir::constraints.sdc",
     "FP_CORE_UTIL": 40,

@@ -6,7 +6,7 @@ memories stay outside the block as ports, the usual way a core is delivered as a
 | Setting | Value | Why |
 |---|---|---|
 | PDK | sky130A (default) | open-source 130 nm process |
-| Clock | 40 ns (25 MHz) first run | safe start; the single-cycle 32x32 multiplier is the long path |
+| Clock | 50 ns (20 MHz) | closes the slow corner (ss, 100 C, 1.60 V); typical corner reaches ~35 MHz |
 | Core utilisation | 40 % | leaves room for routing ~18k cells |
 | Placement density | 50 % | |
 
