@@ -9,7 +9,7 @@ ROOT=$HERE/..
 echo "== e-Yantra directed testbench"
 mkdir -p "$HERE/work/eyantra"
 iverilog -g2005 -o "$HERE/work/eyantra/sim" "$ROOT/.test/tb.v" "$ROOT"/code/*.v \
-    "$ROOT"/code/components/*.v "$ROOT"/code/io/*.v "$ROOT"/code/accel/*.v
+    "$ROOT"/code/components/*.v "$ROOT"/code/io/*.v "$ROOT"/code/accel/*.v "$ROOT"/code/ascon/*.v
 (cd "$ROOT/code" && vvp -n "$HERE/work/eyantra/sim" | grep -E "Faulty|errors" && rm -f results.txt)
 
 echo "== riscv-tests";              "$HERE/run_riscv_tests.sh" "$@" | tail -1

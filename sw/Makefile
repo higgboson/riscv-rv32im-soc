@@ -17,7 +17,7 @@ OBJDUMP = $(CROSS)objdump
 # rv32im = base integers + multiply / divide, which is what the CPU supports.
 # No standard library: the CPU has no OS, console.c gives the few functions we need.
 CFLAGS  = -march=rv32im -mabi=ilp32 -O2 -ffreestanding -nostdlib -nostartfiles \
-          -fno-builtin-printf -Wall -Icommon -Iprograms/bench
+          -fno-builtin-printf -Wall -Icommon -Iprograms/bench $(EXTRA_CFLAGS)
 LDFLAGS = -T common/link.ld -Wl,--gc-sections -lgcc
 
 SRC   = common/crt0.S common/console.c $(wildcard programs/$(PROG)/*.c)
@@ -35,12 +35,12 @@ $(OUT)/imem.hex: $(OUT)/$(PROG).elf
 	python3 elf2hex.py $< $(OUT) $(OBJCOPY)
 
 sim: $(OUT)/imem.hex
-	iverilog -g2005 $(VFLAGS) -o $(OUT)/sim ../verif/tb_program.v $(RTL)/*.v $(RTL)/components/*.v $(RTL)/io/*.v $(RTL)/accel/*.v
+	iverilog -g2005 $(VFLAGS) -o $(OUT)/sim ../verif/tb_program.v $(RTL)/*.v $(RTL)/components/*.v $(RTL)/io/*.v $(RTL)/accel/*.v $(RTL)/ascon/*.v
 	cd $(OUT) && vvp -n sim
 
 # Prebuilt programs, kept in git so the board can be used without a RISC-V compiler
 # (sw/load.py and fpga/basys3/build.tcl read them from sw/prebuilt/)
-PREBUILT = hello bench demo matmul
+PREBUILT = hello bench demo matmul ascon ascon_demo
 prebuilt:
 	for p in $(PREBUILT); do \
 	    $(MAKE) -s PROG=$$p && mkdir -p prebuilt/$$p && cp build/$$p/*.hex prebuilt/$$p/ ; \
