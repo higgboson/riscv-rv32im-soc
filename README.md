@@ -267,11 +267,30 @@ docs/             design notes for each phase
 
 ## Roadmap
 
+Done:
+
 - [x] Phase 1: RV32M, block-RAM memories, MMIO, C toolchain, riscv-tests
 - [x] Phase 2: performance counters, branch prediction (BTB + 2-bit counters), benchmarks
 - [x] Basys 3: UART console, display / LEDs / switches, UART program loader
 - [x] INT8 systolic-array accelerator, memory mapped, driven from C
-- [ ] DMA for the accelerator (it fetches its own data)
-- [ ] RTL-to-GDSII of the core with OpenLane (SkyWater 130 nm)
-- [ ] Interrupts and CSRs (timer interrupt, trap handling)
-- [ ] Games: Snake / Tetris in the UART terminal, then a VGA framebuffer (Pong / Snake on a monitor)
+- [x] UVM verification of the core and the accelerator (Xcelium + IMC)
+- [x] RTL-to-GDSII of the core on SkyWater 130 nm (LibreLane), timing closed at 20 MHz
+
+Next, in order:
+
+- [ ] **TFT display + touch (2.4" SPI, ILI9341):** SPI controller on the memory map, C driver
+- [ ] **Accelerator demo on the display:** CPU vs accelerator race, then handwritten-digit
+      recognition (small INT8 network running on the systolic array)
+- [ ] **Interrupts and CSRs:** machine mode, timer interrupt, traps (ecall, illegal instruction),
+      official `rv32mi` tests
+- [ ] **DMA for the accelerator:** it fetches its own operands, so data movement stops being
+      the bottleneck
+- [ ] **Two-stage multiplier** (or ALU / PC+4 selected in Memory) to shorten the critical path,
+      then re-run the sky130 flow for a higher clock
+- [ ] **Formal verification:** SymbiYosys on the accelerator and DMA, riscv-formal on the core
+- [ ] **Instruction cache in front of the QSPI flash:** run code straight from flash
+- [ ] **riscv-dv** random instruction tests on the core
+- [ ] **Games:** Snake / Tetris in the UART terminal, then on the TFT display or a VGA
+      framebuffer; DOOM as a stretch goal (needs more memory and a faster core)
+- [ ] Bitstream saved to the Basys 3 flash, so the demo starts at power-up
+- [ ] GitHub Actions: run the Verilator UVM tests and riscv-tests on every push
