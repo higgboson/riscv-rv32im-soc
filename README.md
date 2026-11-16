@@ -32,6 +32,7 @@ IMC), with planted bugs to prove the testbenches catch real failures.
 | FPGA | Basys 3 (Artix-7 XC7A35T): MMCM clocking, UART console, 7-segment display, LEDs, switches, buttons |
 | Program loader | hardware UART loader with checksum: `python sw/load.py COM5 bench` |
 | Accelerator | 4x4 INT8 systolic array (16 MACs/cycle), memory mapped, C driver: **10.5x** faster 32x32 matmul |
+| ASIC | Hardened on SkyWater 130 nm with LibreLane: 0.52 mm², DRC/LVS clean, timing closed at 20 MHz in all corners ([details](asic/riscv_cpu/README.md)) |
 | Verification | UVM on Xcelium + IMC: 48/48 riscv-tests in UVM, 17/17 regression tests pass, 100% functional coverage, SVA, bug injection |
 
 ## Block diagram
