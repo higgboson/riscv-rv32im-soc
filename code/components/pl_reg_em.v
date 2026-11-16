@@ -1,6 +1,7 @@
 // pl_reg_em.v - pipeline register between Execute and Memory (EX/MEM)
 // clr : put a bubble into Memory. Used while a divide holds Execute, so the
-//       instructions already ahead of it are not repeated.
+//       instructions already ahead of it are not repeated. Only the control fields are
+//       cleared; the data fields are unused once RegWrite / MemWrite / Valid are 0.
 // PCM is carried only so the testbench can see which instruction reaches Writeback (PCW).
 // ValidM marks a real instruction (for the retired-instruction counter).
 
@@ -25,8 +26,7 @@ end
 
 always @(posedge clk) begin
     if (clr) begin
-        ALUResultM <= 0; WriteDataM <= 0; PCM <= 0;
-        RdM <= 0; funct3M <= 0; RegWriteM <= 0; MemWriteM <= 0; ResultSrcM <= 0; ValidM <= 0;
+        RegWriteM <= 0; MemWriteM <= 0; ResultSrcM <= 0; ValidM <= 0;
     end else begin
         ALUResultM <= ALUResultE; WriteDataM <= WriteDataE; PCM <= PCE;
         RdM <= RdE; funct3M <= funct3E;

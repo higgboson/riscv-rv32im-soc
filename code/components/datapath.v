@@ -184,26 +184,34 @@ pl_reg_mw plmw (
     .clk(clk),
     .ALUResultM(ALUResultM), .ReadDataM(ReadData), .PCM(PCM),
     .WriteDataM(WriteDataM), .RdM(RdM), .funct3M(funct3M), .RegWriteM(RegWriteM), .ValidM(ValidM), .ResultSrcM(ResultSrcM),
-    .ALUResultW(ALUResultW), .ReadDataW(ReadDataW), .PCW(PCW),
+    .ALUResultW(ALUResultW), .ReadDataW(ReadDataW), .PCW(PCWr),
     .WriteDataW(WriteDataW), .RdW(RdW), .funct3W(funct3W), .RegWriteW(RegWriteW), .ValidW(ValidW), .ResultSrcW(ResultSrcW)
 );
 
 // WRITEBACK
+// A bubble keeps the PC of the instruction before it (flushes clear only the control
+// bits), so the PCW output is shown as 0 for bubbles, as before. Testbenches that watch
+// PCW then never see one PC twice.
+wire [31:0] PCWr;
+assign PCW = ValidW ? PCWr : 32'b0;
 // memory returns a whole word; cut out the byte / half the load wanted
 load_extend    lext    (ReadDataW, funct3W, ALUResultW[1:0], LoadDataW);
 
 // 00 = ALU result, 01 = load data, 10 = PC + 4 (jal / jalr)
 // PC + 4 is rebuilt from PCW here instead of being carried through every stage,
 // which saves 4 x 32 flip-flops.
-adder          pcadd4w (PCW, 32'd4, PCPlus4W);
+adder          pcadd4w (PCWr, 32'd4, PCPlus4W);
 mux3 #(32)     resultmux (ALUResultW, LoadDataW, PCPlus4W, ResultSrcW, ResultW);
 assign Result = ResultW;
 
 // Performance events. Only divides ever wait in Execute, so each branch / jump is
-// in Execute for exactly one cycle and is counted once.
-assign PerfEvents = {ValidE & MispredictE,
-                     ValidE & JumpE,
-                     ValidE & BranchE,
-                     ValidW};
+// in Execute for exactly one cycle and is counted once. They are registered: the
+// counters do not care about one cycle of delay, and a direct output from the
+// mispredict logic was the slowest path of the chip layout.
+reg [3:0] perf_q = 4'b0;
+always @(posedge clk)
+    if (reset) perf_q <= 4'b0;
+    else       perf_q <= {ValidE & MispredictE, ValidE & JumpE, ValidE & BranchE, ValidW};
+assign PerfEvents = perf_q;
 
 endmodule
