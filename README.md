@@ -149,32 +149,7 @@ breaking forwarding, wrong divide-by-zero result, missing pipeline bubble during
 missing reset flush, missed "predicted taken but not taken" case, wrong redirect address).
 Every planted bug was caught.
 
-## Results (Cyclone IV E, EP4CE22F17C6, Quartus Prime Lite 20.1)
-
-| | Phase 1 (RV32IM) | Phase 2 (+ branch prediction) |
-|---|---|---|
-| Fmax (slow 85 C model) | 57.0 MHz | 56.33 MHz |
-| Logic elements | 2,414 (11 %) | 3,378 (15 %) |
-| Registers | 650 | 1,196 |
-| Memory bits | 264,192 (34 M9K) | 264,800 |
-| 9-bit multiplier elements | 8 | 8 |
-| CPI on the benchmark suite | 1.52 | 1.20 |
-
-Timing is met at the 50 MHz target in both. The branch target buffer is kept in flip-flops
-(about 550 registers) so it can be read in the same cycle as Fetch; it is not on the critical
-path. Net speedup including the small Fmax change: 1.26 x 56.33 / 57.0 = **1.25x**.
-
-Timing work done so far:
-1. The first critical path was data memory read (falling edge) -> load byte select and sign
-   extend -> MEM/WB, in half a cycle. The byte select moved to Writeback (`load_extend.v`).
-2. That exposed the branch path: forwarding -> ALU input muxes -> ALU subtract -> branch
-   decision -> flush. Branches now use their own comparator and `jalr` its own adder, fed
-   directly from the forwarded registers.
-3. The critical path is now: load data in Writeback -> forwarding -> single-cycle multiplier
-   -> EX/MEM (17.5 ns). Several paths now sit close to the same delay, so the next real gain
-   needs a structural change: a 2-cycle (registered) multiplier and rising-edge memories.
-
-## On the Basys 3
+## On the Basys 3 (Xilinx Artix-7, Vivado)
 
 Step by step: [`docs/basys3_guide.md`](docs/basys3_guide.md).
 
@@ -201,6 +176,35 @@ The board reports 276,798 cycles for the whole suite, exactly the same as RTL si
 | Block RAM | 9 tiles (16 KB IMEM + 16 KB DMEM) |
 | DSP48E1 | 4 (single-cycle multiplier) |
 | Critical path | forwarding compare -> ALU / multiplier -> EX/MEM register |
+
+## Earlier port: Intel Cyclone IV (Quartus)
+
+Before the Basys 3 port, the design was first built for an Intel Cyclone IV E (EP4CE22F17C6,
+Quartus Prime Lite 20.1). Those results are kept here because they show the timing work
+across the two phases:
+
+| | Phase 1 (RV32IM) | Phase 2 (+ branch prediction) |
+|---|---|---|
+| Fmax (slow 85 C model) | 57.0 MHz | 56.33 MHz |
+| Logic elements | 2,414 (11 %) | 3,378 (15 %) |
+| Registers | 650 | 1,196 |
+| Memory bits | 264,192 (34 M9K) | 264,800 |
+| 9-bit multiplier elements | 8 | 8 |
+| CPI on the benchmark suite | 1.52 | 1.20 |
+
+Timing is met at the 50 MHz target in both. The branch target buffer is kept in flip-flops
+(about 550 registers) so it can be read in the same cycle as Fetch; it is not on the critical
+path. Net speedup including the small Fmax change: 1.26 x 56.33 / 57.0 = **1.25x**.
+
+Timing work done so far:
+1. The first critical path was data memory read (falling edge) -> load byte select and sign
+   extend -> MEM/WB, in half a cycle. The byte select moved to Writeback (`load_extend.v`).
+2. That exposed the branch path: forwarding -> ALU input muxes -> ALU subtract -> branch
+   decision -> flush. Branches now use their own comparator and `jalr` its own adder, fed
+   directly from the forwarded registers.
+3. The critical path is now: load data in Writeback -> forwarding -> single-cycle multiplier
+   -> EX/MEM (17.5 ns). Several paths now sit close to the same delay, so the next real gain
+   needs a structural change: a 2-cycle (registered) multiplier and rising-edge memories.
 
 ## How to run (simulation)
 
@@ -230,8 +234,9 @@ verif/run_all.sh
 cd code && iverilog -g2005 -o tb ../.test/tb.v *.v components/*.v io/*.v accel/*.v && vvp tb
 ```
 
-To put a C program on the FPGA: `make PROG=hello install` copies its hex files into `code/`,
-then compile in Quartus.
+To put a C program into the bitstream: `make PROG=hello install` copies its hex files into
+`code/`, then rebuild with Vivado (`fpga/basys3/build.tcl`). To run it without rebuilding, use
+the UART loader: `python sw/load.py COM5 hello`.
 
 ## Repository layout
 
