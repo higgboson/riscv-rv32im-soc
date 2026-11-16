@@ -12,7 +12,11 @@ memories stay outside the block as ports, the usual way a core is delivered as a
 
 ## Results (LibreLane, sky130A, 20 MHz)
 
-![riscv_cpu layout in KLayout](../../docs/images/asic/riscv_cpu_gds.png)
+![riscv_cpu layout in KLayout](../../docs/images/asic/chip_full.png)
+
+Final sign-off metrics (LibreLane `metrics.json`):
+
+![final metrics](../../docs/images/asic/asic_final_metrics.png)
 
 | Metric | Value |
 |---|---|
@@ -23,6 +27,20 @@ memories stay outside the block as ports, the usual way a core is delivered as a
 | Setup slack, typical corner (tt, 25 °C, 1.80 V) | +16.6 ns: the core runs at about 30 MHz |
 | Hold slack (all corners) | +0.11 ns, 0 violations |
 | Power (typical) | about 11 mW |
+
+## Inside the layout
+
+From the whole chip down to single transistors (KLayout, sky130A layers):
+
+| Standard cells | Transistors |
+|---|---|
+| ![standard cells](../../docs/images/asic/chip_std_cells.png) | ![transistors](../../docs/images/asic/chip_transistors.png) |
+| Cells from the SkyWater `sky130_fd_sc_hd` library placed in rows (nand2, nor2, and3, clock buffers, decap and fill cells) between the power rails. | Diffusion (green) with poly gates (red) crossing it: each crossing is one transistor, PMOS in the upper band of a row, NMOS in the lower. The repeated blocks are decap cells that steady the supply. |
+
+| One signal net, traced | The same net in context |
+|---|---|
+| ![traced net](../../docs/images/asic/chip_net_traced.png) | ![net in context](../../docs/images/asic/chip_net_in_context.png) |
+| A cell output (li1 with contacts onto PMOS and NMOS diffusion) routed on metal 1, through a via, to the poly gates of two other cells: fanout 2. | The highlighted net among the surrounding cells, wires and power rails. |
 
 ## Timing closure, step by step
 

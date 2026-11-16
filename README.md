@@ -11,9 +11,30 @@ counters and a full verification flow. Runs on a **Digilent Basys 3 (Xilinx Arti
 UART console and a UART program loader, so new programs load in under a second without
 rebuilding the bitstream.
 
-Verified with two **UVM** environments on Cadence Xcelium (constrained-random programs checked
+Hardened into a **SkyWater 130 nm layout** (RTL to GDSII with LibreLane), and verified with two **UVM** environments on Cadence Xcelium (constrained-random programs checked
 commit by commit against a C reference model over DPI-C, SVA, functional and code coverage in
 IMC), with planted bugs to prove the testbenches catch real failures.
+
+## Highlights
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/asic/chip_full.png" alt="sky130 layout"><br><b>The core as a chip:</b> hardened on SkyWater 130 nm with LibreLane. 0.52 mm², about 18k cells, DRC/LVS clean, timing closed at 20 MHz in all corners. <a href="asic/riscv_cpu/README.md">Layout details</a></td>
+<td width="50%"><img src="docs/images/asic/chip_net_traced.png" alt="traced net"><br><b>Down to the transistors:</b> one signal traced through the layout, from a cell output on PMOS/NMOS diffusion, over metal 1 and a via, to the gates of two other cells.</td>
+</tr>
+<tr>
+<td><img src="docs/images/uvm/core_regression.png" alt="UVM regression"><br><b>UVM regression on Cadence Xcelium:</b> constrained-random programs, every register write and store checked against a C reference model. 10/10 core and 7/7 accelerator tests pass. <a href="verif/uvm/README.md">UVM details</a></td>
+<td><img src="docs/images/uvm/core_imc_hierarchy.png" alt="IMC coverage"><br><b>Coverage closure in IMC:</b> 235/235 functional coverage bins, all pipeline assertions passing; code-coverage holes waived with design reasons.</td>
+</tr>
+<tr>
+<td><img src="docs/images/uvm/core_bug_injection_errors.png" alt="bug caught"><br><b>The testbench catches real bugs:</b> a load-use stall broken on purpose gives 889 mismatches and TEST FAILED.</td>
+<td><img src="docs/images/uvm/core_wave_loaduse_mispredict.png" alt="waveform"><br><b>Pipeline in SimVision:</b> a load-use stall (one bubble) and two branch mispredicts flushing Execute.</td>
+</tr>
+<tr>
+<td><img src="docs/images/basys3_demo.gif" alt="Basys 3"><br><b>Running on a Basys 3 FPGA:</b> benchmarks over UART, switches and LEDs, cycle count on the display.</td>
+<td><img src="docs/images/uvm/accel_cov_k_x_clear.png" alt="accelerator coverage"><br><b>INT8 systolic-array accelerator:</b> 10.5x faster matrix multiply; its own UVM environment with cross coverage, SVA on the K+6 cycle run time and 100% covergroups.</td>
+</tr>
+</table>
 
 ## Features
 
