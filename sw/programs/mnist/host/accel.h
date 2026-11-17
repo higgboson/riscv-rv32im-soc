@@ -8,9 +8,10 @@
 #define ACCEL_START  (1u << 8)
 #define ACCEL_CLEAR  (1u << 9)
 #define ACCEL_MAXK   64
+#define ACCEL_QREADY 2u
 
-extern uint32_t accel_ctrl, ACCEL_A[64], ACCEL_B[64];
-extern int32_t  ACCEL_C[16];
+extern uint32_t accel_ctrl, ACCEL_A[64], ACCEL_B[64], ACCEL_Q[4], ACCEL_MULT[4];
+extern int32_t  ACCEL_C[16], ACCEL_BIAS[4];
 int accel_run(void);
 
 #define ACCEL_CTRL   accel_ctrl

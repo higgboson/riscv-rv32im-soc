@@ -19,10 +19,14 @@
 #define ACCEL_A      ((volatile uint32_t *)(ACCEL_BASE + 0x100))
 #define ACCEL_B      ((volatile uint32_t *)(ACCEL_BASE + 0x200))
 #define ACCEL_C      ((volatile int32_t  *)(ACCEL_BASE + 0x300))
+#define ACCEL_Q      ((volatile uint32_t *)(ACCEL_BASE + 0x340))   // C back in INT8, 1 row per word
+#define ACCEL_BIAS   ((volatile int32_t  *)(ACCEL_BASE + 0x380))
+#define ACCEL_MULT   ((volatile uint32_t *)(ACCEL_BASE + 0x3C0))
 
 #define ACCEL_START  (1u << 8)
 #define ACCEL_CLEAR  (1u << 9)
 #define ACCEL_BUSY   1u
+#define ACCEL_QREADY 2u
 #define ACCEL_MAXK   64
 
 static inline void accel_matmul(int m, int n, int k,

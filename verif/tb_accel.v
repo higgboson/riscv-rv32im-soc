@@ -4,7 +4,9 @@
 // extra weight on the edge values -128, 127, -1, 0. It writes them to the accelerator,
 // starts it, waits for busy = 0 and compares all 16 results with a sum computed here.
 // Some tests skip "clear" and must add onto the previous C (accumulate mode), and some
-// start the next run straight away (back-to-back). It also checks the run takes K + 6 cycles.
+// start the next run straight away (back-to-back). It also checks the run takes K + 6 cycles,
+// and the output stage: with random BIAS and MULT, the four Q words must equal
+// clamp((C + bias) * mult + 2^23 >> 24, 0, 127) per element, ready at most 8 cycles later.
 //
 // +TESTS=<n> number of tests (default 500), +SEED=<s> random seed
 
@@ -25,6 +27,11 @@ integer expect_c [0:3][0:3];
 reg signed [7:0] a [0:3][0:63];
 reg signed [7:0] b [0:63][0:3];
 reg clear_first;
+reg signed [31:0] bias [0:3];
+reg        [17:0] mult [0:3];
+reg signed [63:0] p, r;
+reg        [7:0]  qe;
+integer qwait;
 
 // mostly random, sometimes an edge value
 function [7:0] rand_int8(input integer dummy);
@@ -75,6 +82,14 @@ initial begin
             write_reg(32'h2000_0200 + 4 * kk, {b[kk][3], b[kk][2], b[kk][1], b[kk][0]});
         end
 
+        // output stage settings: scales around the useful range, sometimes extreme
+        for (j = 0; j < 4; j = j + 1) begin
+            bias[j] = (($random(seed) & 3) == 0) ? $random(seed) : ($random(seed) % 65536);
+            mult[j] = (($random(seed) & 3) == 0) ? $random(seed) : (16384 + ($random(seed) & 131071));
+            write_reg(32'h2000_0380 + 4 * j, bias[j]);
+            write_reg(32'h2000_03C0 + 4 * j, {14'b0, mult[j]});
+        end
+
         // reference
         for (i = 0; i < 4; i = i + 1)
             for (j = 0; j < 4; j = j + 1) begin
@@ -109,6 +124,34 @@ initial begin
                     errors = errors + 1;
                 end
             end
+
+        // Q: wait for "ready" (CTRL bit 1), then check the four packed rows
+        addr = 32'h2000_0000;
+        qwait = 0;
+        #1;
+        while (!rd_data[1] && qwait < 20) begin
+            @(negedge clk);
+            qwait = qwait + 1;
+        end
+        if (qwait > 8) begin
+            $display("test %0d: Q not ready after %0d cycles", test, qwait);
+            errors = errors + 1;
+        end
+        for (i = 0; i < 4; i = i + 1) begin
+            addr = 32'h2000_0340 + 4 * i;
+            #1;
+            for (j = 0; j < 4; j = j + 1) begin
+                p  = ($signed(expect_c[i][j]) + $signed(bias[j])) * $signed({46'b0, mult[j]});
+                r  = (p + 64'sd8388608) >>> 24;
+                qe = (r < 0) ? 8'd0 : (r > 127) ? 8'd127 : r[7:0];
+                if (rd_data[8*j +: 8] !== qe) begin
+                    if (errors < 10)
+                        $display("test %0d: Q[%0d][%0d] = %0d, expected %0d (C=%0d bias=%0d mult=%0d)",
+                                 test, i, j, rd_data[8*j +: 8], qe, expect_c[i][j], bias[j], mult[j]);
+                    errors = errors + 1;
+                end
+            end
+        end
     end
 
     if (errors == 0)

@@ -4,17 +4,12 @@
 // (its 3x3xC input patch), each filter is one column of B, so C[pixel][filter] is the
 // convolution result. The array takes 4 pixels x 4 filters at a time. Sums longer than
 // 64 steps (conv2 has 72) are split in pieces that the array adds up ("no clear").
-// The CPU builds the patches, adds the bias and does requantisation and pooling.
+// The accelerator's output stage adds the bias, scales back to INT8 and applies ReLU;
+// the CPU builds the patches and does the pooling.
 
 #include "cnn.h"
 #include "weights.h"
 #include "accel.h"
-
-static inline int8_t requant(int32_t acc, int32_t m)
-{
-    int32_t y = (int32_t)(((int64_t)acc * m + (1 << (CNN_SHIFT - 1))) >> CNN_SHIFT);
-    return (int8_t)(y < 0 ? 0 : y > 127 ? 127 : y);
-}
 
 static inline void run(int k, int clear)
 {
@@ -29,7 +24,7 @@ static void conv_pool(const int8_t *in, int H, int W, int C, int F,
     int K  = 9 * C;
     int PH = (H - 2) / 2, PW = (W - 2) / 2;
     int OW = 2 * PW;                                 // conv columns the pooling uses
-    static int8_t   rows[2][26 * 16];                // two conv output rows, OW x F each
+    static int8_t   rows[2][26 * 16] __attribute__((aligned(4)));   // two conv rows, OW x F
     static uint32_t a_words[72];                     // A for 4 pixels: one word per step k
 
     for (int py = 0; py < PH; py++) {
@@ -48,6 +43,10 @@ static void conv_pool(const int8_t *in, int H, int W, int C, int F,
                             a_words[k] = w;
                         }
                 for (int f0 = 0; f0 < F; f0 += 4) {
+                    for (int j = 0; j < 4; j++) {
+                        ACCEL_BIAS[j] = bias[f0 + j];
+                        ACCEL_MULT[j] = (uint32_t)mult[f0 + j];
+                    }
                     for (int k0 = 0; k0 < K; k0 += ACCEL_MAXK) {
                         int kn = K - k0 < ACCEL_MAXK ? K - k0 : ACCEL_MAXK;
                         // A stays in the array between filter groups when it fits in one run
@@ -57,10 +56,11 @@ static void conv_pool(const int8_t *in, int H, int W, int C, int F,
                             ACCEL_B[j] = *(const uint32_t *)&wt[(k0 + j) * F + f0];
                         run(kn, k0 == 0);
                     }
+                    while (!(ACCEL_CTRL & ACCEL_QREADY))
+                        ;
+                    // one word = 4 filters of one pixel, already in INT8: stored as it is
                     for (int i = 0; i < 4 && x0 + i < OW; i++)
-                        for (int j = 0; j < 4; j++)
-                            rows[d][(x0 + i) * F + f0 + j] =
-                                requant(ACCEL_C[i * 4 + j] + bias[f0 + j], mult[f0 + j]);
+                        *(uint32_t *)&rows[d][(x0 + i) * F + f0] = ACCEL_Q[i];
                 }
             }
         }

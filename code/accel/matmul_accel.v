@@ -15,7 +15,16 @@
 //   0x100  A_COL[k]  (k = 0..63) one word = A[0..3][k], byte i = row i
 //   0x200  B_ROW[k]  (k = 0..63) one word = B[k][0..3], byte j = column j
 //   0x300  C[i][j]   (16 words, row by row) read only
-// Without "clear", a run adds onto the old C, so long sums can be split into pieces.
+//   0x340  Q[i]      (4 words) read only: row i of C converted back to INT8 by the output stage,
+//                    byte j = clamp((C[i][j] + BIAS[j]) * MULT[j] + 2^23 >> 24, 0, 127)
+//   0x380  BIAS[j]   (4 words) read / write, added to column j
+//   0x3C0  MULT[j]   (4 words) read / write, 18-bit unsigned scale of column j
+// CTRL read bit 1 = Q ready. Without "clear", a run adds onto the old C, so long sums can be
+// split into pieces; Q is only meaningful after the last piece.
+//
+// The output stage does what a neural-network layer needs after the multiply-adds: add the
+// bias, scale back to 8 bits, ReLU. It runs in the 6 cycles after busy drops (one row per
+// cycle through a 3-stage pipeline), so busy and the K + 6 run length are unchanged.
 
 module matmul_accel #(parameter MAXK = 64) (
     input             clk, reset,
@@ -123,11 +132,77 @@ generate
     end
 endgenerate
 
+// Output stage
+wire [1:0] sub  = addr[7:6];                 // inside region 3: 0 C, 1 Q, 2 BIAS, 3 MULT
+wire [1:0] sidx = addr[3:2];
+
+reg signed [31:0] bias [0:N-1];
+reg        [17:0] mult [0:N-1];
+reg        [31:0] q    [0:N-1];
+reg               q_ready;
+initial begin
+    for (n = 0; n < N; n = n + 1) begin bias[n] = 0; mult[n] = 0; q[n] = 0; end
+    q_ready = 0;
+end
+
+always @(posedge clk)
+    if (wr_en && region == 2'd3) begin
+        if (sub == 2'd2) bias[sidx] <= wr_data;
+        if (sub == 2'd3) mult[sidx] <= wr_data[17:0];
+    end
+
+// row counter: starts when a run ends; a new start stops it so a half-finished Q is never
+// marked ready
+wire       run_done = busy && (t == last);
+reg  [2:0] prow;                             // 0..3 = row entering the pipeline, 4 = idle
+reg  [1:0] row_s1, row_s2;
+reg        v_s1, v_s2;
+reg signed [32:0] sum_s1  [0:N-1];
+reg signed [51:0] prod_s2 [0:N-1];
+initial begin prow = 3'd4; v_s1 = 0; v_s2 = 0; end
+
+always @(posedge clk) begin
+    if (reset || start) begin
+        prow <= 3'd4;  v_s1 <= 1'b0;  v_s2 <= 1'b0;  q_ready <= 1'b0;
+    end else begin
+        if (run_done)            prow <= 3'd0;
+        else if (prow != 3'd4)    prow <= prow + 3'd1;
+        v_s1 <= (prow != 3'd4);   row_s1 <= prow[1:0];
+        v_s2 <= v_s1;            row_s2 <= row_s1;
+        if (v_s2 && row_s2 == 2'd3) q_ready <= 1'b1;
+    end
+end
+
+function [7:0] to_int8(input signed [51:0] p);
+    reg signed [51:0] r;
+    begin
+        r = (p + 52'sd8388608) >>> 24;       // + 2^23, then / 2^24 rounded
+        to_int8 = (r < 0) ? 8'd0 : (r > 127) ? 8'd127 : r[7:0];
+    end
+endfunction
+
+generate
+    for (j = 0; j < N; j = j + 1) begin : post
+        always @(posedge clk) begin
+            // stage 1: bias (both sign-extended to 33 bits, so the sum cannot overflow)
+            sum_s1[j]  <= $signed({acc[prow[1:0]][j][31], acc[prow[1:0]][j]})
+                        + $signed({bias[j][31], bias[j]});
+            prod_s2[j] <= sum_s1[j] * $signed({1'b0, mult[j]});       // stage 2: scale
+            if (v_s2) q[row_s2][8*j +: 8] <= to_int8(prod_s2[j]);     // stage 3: round, ReLU, clamp
+        end
+    end
+endgenerate
+
 // Reads
 always @(*) begin
     case (region)
-        2'd0:    rd_data = {31'b0, busy};
-        2'd3:    rd_data = acc[addr[5:4]][addr[3:2]];
+        2'd0:    rd_data = {30'b0, q_ready, busy};
+        2'd3:    case (sub)
+                     2'd0:    rd_data = acc[addr[5:4]][addr[3:2]];
+                     2'd1:    rd_data = q[sidx];
+                     2'd2:    rd_data = bias[sidx];
+                     default: rd_data = {14'b0, mult[sidx]};
+                 endcase
         default: rd_data = 32'b0;             // A / B buffers are write-only
     endcase
 end
