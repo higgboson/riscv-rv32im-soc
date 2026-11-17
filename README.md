@@ -235,13 +235,13 @@ are accelerated too (Amdahl's law). See [Future work](#future-work).
   PC, with a software model of the accelerator) and on the RTL and the board.
 - The full regression (riscv-tests, random programs, board tests, e-Yantra) still passes.
 
-| Basys 3 after the accelerator work | Before | Now (layer engine, 128-step buffers) |
+| Basys 3 after the accelerator work | Before | Now (double-buffered layer engine) |
 |---|---|---|
-| Slice LUTs | 1,939 | 6,403 (30.8 %), of which the accelerator 3,946 |
-| Slice registers | 1,207 | 2,740 (6.6 %) |
+| Slice LUTs | 1,939 | 6,755 (32.5 %), of which the accelerator 4,113 |
+| Slice registers | 1,207 | 3,232 (7.8 %) |
 | Block RAM | 9 tiles | 9 tiles: the gather and layer engines use the second port of the same RAMs |
 | DSP48E1 | 4 | 15 (accelerator 11: output stage and the engine's address arithmetic; 75 of 90 still free) |
-| Timing at 50 MHz | +2.72 ns | met, worst slack +2.39 ns |
+| Timing at 50 MHz | +2.72 ns | met, worst slack +1.96 ns |
 
 Training, quantisation and the PC check: [`ml/mnist`](ml/mnist/README.md).
 
@@ -294,9 +294,9 @@ The board reports 276,798 cycles for the whole suite, exactly the same as RTL si
 
 | Basys 3 (XC7A35T-1, Vivado 2026.1) | |
 |---|---|
-| CPU clock | 50 MHz from the MMCM, timing met (worst slack +2.39 ns, hold +0.02 ns) |
-| Slice LUTs | 6,403 / 20,800 (30.8 %), of which the accelerator 3,946 (864 as distributed RAM: operand buffers and row buffer) |
-| Slice registers | 2,740 / 41,600 (6.6 %) |
+| CPU clock | 50 MHz from the MMCM, timing met (worst slack +1.96 ns, hold +0.04 ns) |
+| Slice LUTs | 6,755 / 20,800 (32.5 %), of which the accelerator 4,113 (946 as distributed RAM: two banks of operand buffers and the row buffer) |
+| Slice registers | 3,232 / 41,600 (7.8 %) |
 | Block RAM | 9 tiles (16 KB IMEM + 16 KB DMEM, DMEM dual-ported for the accelerator) |
 | DSP48E1 | 15 (CPU multiplier 4, accelerator 11) |
 | Worst path | UART loader hold -> data memory write enable (a half-cycle path: memory writes on the falling edge) |
