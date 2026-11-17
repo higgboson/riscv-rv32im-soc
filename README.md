@@ -200,7 +200,7 @@ then double buffering (fetch the next tile while the array computes).
   contents, with random descriptors and alignments. 3,000 tiles pass. Three bugs planted in the
   engine are all caught; one was missed at first, which led to a new test case.
 - **Layer engine:** `sw/programs/conv_test` runs 24 convolution layers with random shapes
-  (1 to 21 channels, 4 to 16 filters, rows up to 32 pixels, odd sizes, partial tiles) and random
+  (1 to 24 channels, 4 to 16 filters, rows up to 32 pixels, odd sizes, partial tiles) and random
   data through the engine and checks every output byte against plain C, plus fixed cases: one
   126-step run (C = 14), three pieces of 126 steps (C = 42) and a single output column. All 24
   pass; a planted bug in the pooling compare fails 23 of them, a scale off by one fails 3. Widening
@@ -212,13 +212,13 @@ then double buffering (fetch the next tile while the array computes).
   PC, with a software model of the accelerator) and on the RTL and the board.
 - The full regression (riscv-tests, random programs, board tests, e-Yantra) still passes.
 
-| Basys 3, gather-engine build (layer-engine figures to follow) | Before | Gather engine |
+| Basys 3 after the accelerator work | Before | Now (layer engine, 128-step buffers) |
 |---|---|---|
-| Slice LUTs | 1,939 | 4,869 (23.4 %) |
-| Slice registers | 1,207 | 2,227 (5.4 %) |
-| Block RAM | 9 tiles | 9 tiles: the gather engine uses the second port of the same RAMs |
-| DSP48E1 | 4 | 12 (8 in the output stage; 78 of 90 still free for a bigger array) |
-| Timing at 50 MHz | +2.72 ns | met, worst slack +2.19 ns |
+| Slice LUTs | 1,939 | 6,403 (30.8 %), of which the accelerator 3,946 |
+| Slice registers | 1,207 | 2,740 (6.6 %) |
+| Block RAM | 9 tiles | 9 tiles: the gather and layer engines use the second port of the same RAMs |
+| DSP48E1 | 4 | 15 (accelerator 11: output stage and the engine's address arithmetic; 75 of 90 still free) |
+| Timing at 50 MHz | +2.72 ns | met, worst slack +2.39 ns |
 
 Training, quantisation and the PC check: [`ml/mnist`](ml/mnist/README.md).
 
@@ -271,11 +271,11 @@ The board reports 276,798 cycles for the whole suite, exactly the same as RTL si
 
 | Basys 3 (XC7A35T-1, Vivado 2026.1) | |
 |---|---|
-| CPU clock | 50 MHz from the MMCM, timing met (worst slack +2.19 ns) |
-| Slice LUTs | 4,869 / 20,800 (23.4 %), of which the accelerator 2,730 |
-| Slice registers | 2,227 / 41,600 (5.4 %) |
+| CPU clock | 50 MHz from the MMCM, timing met (worst slack +2.39 ns, hold +0.02 ns) |
+| Slice LUTs | 6,403 / 20,800 (30.8 %), of which the accelerator 3,946 (864 as distributed RAM: operand buffers and row buffer) |
+| Slice registers | 2,740 / 41,600 (6.6 %) |
 | Block RAM | 9 tiles (16 KB IMEM + 16 KB DMEM, DMEM dual-ported for the accelerator) |
-| DSP48E1 | 12 (CPU multiplier 4, accelerator output stage 8) |
+| DSP48E1 | 15 (CPU multiplier 4, accelerator 11) |
 | Worst path | UART loader hold -> data memory write enable (a half-cycle path: memory writes on the falling edge) |
 
 Before the accelerator work: 1,939 LUTs, 1,207 registers, 4 DSPs, worst slack +2.72 ns
