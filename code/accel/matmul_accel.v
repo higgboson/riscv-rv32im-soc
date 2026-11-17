@@ -11,7 +11,8 @@
 //
 // Registers (base 0x2000_0000, word offsets):
 //   0x000  CTRL   write: bits 7:0 = K (1..128), bit 8 = start, bit 9 = clear C first,
-//                        bit 10 = gather A first, bit 11 = gather B first (see below)
+//                        bit 10 = gather A first, bit 11 = gather B first (see below),
+//                        bit 13 / 14 = bank of A / B that the gather fills and the run reads
 //                 read : bit 0 = busy (gathering or running), bit 1 = Q ready
 //   0x010  GA_BASE   gather descriptor for A: start address in data memory
 //   0x014  GA_COUNT  bits 7:0 = n0, 15:8 = n1, 23:16 = n2, 26:24 = lanes (1..4)
@@ -34,8 +35,9 @@
 //   0x3C0  MULT[j]   (4 words) read / write, 18-bit unsigned scale of column j
 // Without "clear", a run adds onto the old C, so long sums can be
 // split into pieces; Q is only meaningful after the last piece.
-// The buffers hold 128 steps. The CPU can write the first 64 through its windows; the gather
-// engine fills all 128, so a 3x3x8 patch (72 steps) fits in one run.
+// The buffers hold two banks of 128 steps. The CPU writes the first 64 steps of bank 0 through
+// its windows; the gather engine fills all 128 steps of either bank, so a 3x3x8 patch (72 steps)
+// fits in one run, and one bank can be filled while the array runs from the other.
 //
 // The output stage does what a neural-network layer needs after the multiply-adds: add the
 // bias, scale back to 8 bits, ReLU. It runs in the 6 cycles after busy drops (one row per
@@ -77,19 +79,21 @@ wire [1:0]    region = addr[9:8];          // 0 = control, 1 = A, 2 = B, 3 = C
 wire [KW-1:0] widx   = {{(KW-6){1'b0}}, addr[7:2]};  // CPU window: steps 0..63
 
 // Operand buffers (small, become LUT RAM on the FPGA)
-reg [31:0] a_buf [0:MAXK-1];
-reg [31:0] b_buf [0:MAXK-1];
+// two banks of MAXK steps each (index = {bank, step}): the gather engine can fill one bank
+// while the array runs from the other. The CPU windows write bank 0.
+reg [31:0] a_buf [0:2*MAXK-1];
+reg [31:0] b_buf [0:2*MAXK-1];
 
 // gather engine write port (declared here, driven further down)
 reg           g_we, g_we_b;
-reg  [KW-1:0] g_widx;
+reg  [KW:0]   g_widx;                     // {bank, step}
 reg  [31:0]   g_wdata;
 
 always @(posedge clk) begin
-    if (g_we && !g_we_b)              a_buf[g_widx] <= g_wdata;
-    else if (wr_en && region == 2'd1) a_buf[widx]   <= wr_data;
-    if (g_we && g_we_b)               b_buf[g_widx] <= g_wdata;
-    else if (wr_en && region == 2'd2) b_buf[widx]   <= wr_data;
+    if (g_we && !g_we_b)              a_buf[g_widx]       <= g_wdata;
+    else if (wr_en && region == 2'd1) a_buf[{1'b0, widx}] <= wr_data;
+    if (g_we && g_we_b)               b_buf[g_widx]       <= g_wdata;
+    else if (wr_en && region == 2'd2) b_buf[{1'b0, widx}] <= wr_data;
 end
 
 // Commands. Writing CTRL with start and/or a gather bit is a command; it is ignored while
@@ -106,19 +110,21 @@ wire [7:0]  last = k8 + 8'd5;              // last step, see below
 
 reg         l_busy;                        // the layer engine is working
 reg         e_cmd;                         // a command from the layer engine
-reg  [11:0] e_bits;
+reg  [14:0] e_bits;
 
 wire ctrl_wr = wr_en && region == 2'd0 && addr[7:2] == 6'd0;
 wire idle_all = !busy && !g_busy && !g_done && !l_busy;
 wire cmd_cpu = ctrl_wr && (wr_data[8] || wr_data[10] || wr_data[11]) && idle_all;
 wire cmd     = cmd_cpu || e_cmd;
-wire [11:0] cbits = cmd_cpu ? wr_data[11:0] : e_bits;
+wire [14:0] cbits = cmd_cpu ? wr_data[14:0] : e_bits;
 wire cmd_gather = cmd && (cbits[10] || cbits[11]);
 wire l_start = ctrl_wr && wr_data[12] && idle_all;
 
 // a run starts straight from the command, or when the gathering it asked for is done
 reg         pend_run, pend_clear;
 reg  [KW:0] pend_k;
+reg         pend_ba, pend_bb;               // banks of a run that waits for its gather
+reg         r_ba, r_bb;                     // banks the running array reads
 wire start = (cmd && cbits[8] && !cmd_gather) || (g_done && pend_run);
 wire clear = start && (cmd ? cbits[9] : pend_clear);
 
@@ -129,6 +135,8 @@ always @(posedge clk) begin
         pend_run   <= cbits[8];
         pend_clear <= cbits[9];
         pend_k     <= cbits[KW:0];
+        pend_ba    <= cbits[13];
+        pend_bb    <= cbits[14];
     end
 end
 
@@ -138,6 +146,8 @@ always @(posedge clk) begin
     end else if (start) begin
         busy  <= 1'b1;
         k_len <= cmd ? cbits[KW:0] : pend_k;
+        r_ba  <= cmd ? cbits[13] : pend_ba;
+        r_bb  <= cmd ? cbits[14] : pend_bb;
         t     <= 0;
     end else if (busy) begin
         // step K-1 is fed at t = K-1 and needs 3 skew + 3 hop cycles to reach PE (3,3),
@@ -150,8 +160,8 @@ end
 
 // Feed: one word of A and one of B per step, zeros once the K steps are done
 wire        feeding = busy && (t < k8);
-wire [31:0] a_word  = feeding ? a_buf[t[KW-1:0]] : 32'b0;
-wire [31:0] b_word  = feeding ? b_buf[t[KW-1:0]] : 32'b0;
+wire [31:0] a_word  = feeding ? a_buf[{r_ba, t[KW-1:0]}] : 32'b0;
+wire [31:0] b_word  = feeding ? b_buf[{r_bb, t[KW-1:0]}] : 32'b0;
 
 // Skew: lane i goes through i registers before entering the array
 reg [7:0] a_d1 [1:3], a_d2 [2:3], a_d3;
@@ -237,6 +247,7 @@ always @(posedge clk)
 
 reg         g_sel;                         // which buffer is being filled: 0 = A, 1 = B
 reg         g_then_b;                      // after A, also gather B
+reg         g_ba, g_bb;                    // banks being filled
 reg         g_issue;                       // still sending addresses
 reg  [7:0]  c0, c1, c2;                    // loop counters
 reg  [15:0] o0, o1, o2, ol;                // byte offsets of the three loops and of the lane
@@ -284,6 +295,8 @@ always @(posedge clk) begin
         g_busy   <= 1'b1;  g_issue <= 1'b1;
         g_sel    <= !cbits[10];            // start with A unless only B was asked for
         g_then_b <= cbits[10] && cbits[11];
+        g_ba     <= cbits[13];
+        g_bb     <= cbits[14];
         c0 <= 0; c1 <= 0; c2 <= 0; o0 <= 0; o1 <= 0; o2 <= 0; ol <= 0; lane <= 0; g_k <= 0;
         p_valid <= 1'b0;
     end else if (g_busy) begin
@@ -310,7 +323,7 @@ always @(posedge clk) begin
         if (p_valid) begin
             g_word <= word_next;
             if (p_last) begin
-                g_we <= 1'b1;  g_we_b <= g_sel;  g_widx <= p_k[KW-1:0];  g_wdata <= word_next;
+                g_we <= 1'b1;  g_we_b <= g_sel;  g_widx <= {g_sel ? g_bb : g_ba, p_k[KW-1:0]};  g_wdata <= word_next;
             end
             if (p_end) begin
                 if (g_sel == 1'b0 && g_then_b) begin       // A done, now B
@@ -350,7 +363,7 @@ reg signed [51:0] prod_s2 [0:N-1];
 initial begin prow = 3'd4; v_s1 = 0; v_s2 = 0; end
 
 always @(posedge clk) begin
-    if (reset || start || cmd) begin
+    if (reset || start || cmd_cpu) begin
         prow <= 3'd4;  v_s1 <= 1'b0;  v_s2 <= 1'b0;  q_ready <= 1'b0;
     end else begin
         if (run_done)            prow <= 3'd0;
@@ -397,14 +410,42 @@ always @(posedge clk)
             default: ;
         endcase
 
-localparam E_IDLE = 3'd0, E_PARAM = 3'd1, E_SETUP = 3'd2, E_CMD = 3'd3,
-           E_WAIT = 3'd4, E_LAND = 3'd5, E_POOL = 3'd6, E_TURN = 3'd7;
-reg  [2:0]  e_st;
-reg  [7:0]  e_py, e_x0, e_f0, e_px, e_fg;
-reg         e_d, e_finish;
-reg  [1:0]  e_ky0, e_nr;
-reg  [5:0]  e_i;                           // PARAM: read number 0 .. 2F
-reg         e_need_a, e_last_piece;
+// The engine is two state machines that work at the same time:
+//   fetch   walks the layer's jobs (one job = one run of the array: 4 pixels x 4 filters, or one
+//           piece of it) and gathers each job's operands into a free bank;
+//   compute runs the array on the oldest job whose operands are complete, hands finished tiles
+//           to the background store, and pools each pair of conv rows.
+// They meet in a 2-entry job queue: job j uses slot j % 2 and B bank j % 2, so the next job's
+// operands are fetched while the array runs the current one. The A bank changes only when a job
+// gathers a new patch (with one run per patch, a patch is shared by all filter groups).
+localparam F_IDLE = 2'd0, F_PARAM = 2'd1, F_SETUP = 2'd2, F_ISSUE = 2'd3;
+localparam C_IDLE = 3'd0, C_WAIT = 3'd1, C_RUN = 3'd2, C_OUT = 3'd3, C_LAND = 3'd4,
+           C_POOL = 3'd5, C_TURN = 3'd6;
+reg  [1:0]  f_st;
+reg  [2:0]  c_st;
+reg  [7:0]  f_py, f_x0, f_f0;
+reg         f_d, f_done;
+reg  [1:0]  f_ky0;
+reg  [5:0]  f_i;                           // PARAM: read number 0 .. 2F
+reg         f_slot, f_abank, f_need_a;
+reg  [7:0]  f_steps;
+reg         f_first, f_last, f_endpair, f_endlayer;
+
+// job queue
+reg         j_valid [0:1], j_ready [0:1];
+reg  [7:0]  j_k [0:1];
+reg         j_clear [0:1], j_last [0:1], j_abank [0:1], j_endpair [0:1], j_endlayer [0:1];
+reg         j_d [0:1];
+reg  [7:0]  j_x0 [0:1], j_f0 [0:1];
+reg  [2:0]  j_lanes [0:1];
+reg         g_slot;                        // job whose operands the gather engine is fetching
+reg         e_gath;                        // that gather came from the engine
+
+// compute side: the job on the array
+reg         c_slot, c_lock, c_last, c_endpair, c_endlayer, c_d;
+reg  [7:0]  c_py, c_x0, c_f0, c_px, c_fg;
+reg  [2:0]  c_lanes;
+reg         c_copy;                        // copy this group's bias / scale into the output stage
 
 // bias and scale of all filters of the layer, loaded once when the layer starts
 reg signed [31:0] p_bias [0:15];
@@ -413,8 +454,8 @@ reg        [17:0] p_mult [0:15];
 // two conv output rows of INT8 results; one word = 4 filters of one pixel: {row, x, filter/4}
 reg  [31:0] rowbuf [0:255];
 
-// background store: when a tile is finished its 1..4 result words are latched and written into
-// the row buffer one per cycle while the engine already sets up and fetches the next tile
+// background store: a finished tile's 1..4 result words are latched and written into the row
+// buffer one per cycle while the array already runs the next job
 reg  [31:0] qh [0:N-1];
 reg         bg_busy;
 reg  [2:0]  bg_i, bg_n;
@@ -423,30 +464,32 @@ reg  [4:0]  bg_x;
 reg  [1:0]  bg_g;
 always @(posedge clk) if (bg_busy) rowbuf[{bg_d, bg_x + {2'b0, bg_i}, bg_g}] <= qh[bg_i[1:0]];
 
+// shape of the fetch side's current job
 wire [7:0]  ow        = {l_pw[6:0], 1'b0};
-wire [7:0]  oy        = {e_py[6:0], 1'b0} + {7'b0, e_d};
-wire [1:0]  rows_left = 2'd3 - e_ky0;
+wire [7:0]  oy        = {f_py[6:0], 1'b0} + {7'b0, f_d};
+wire [1:0]  rows_left = 2'd3 - f_ky0;
 wire [1:0]  nr        = (l_rpr[1:0] < rows_left) ? l_rpr[1:0] : rows_left;
 wire [7:0]  three_c   = {l_c[6:0], 1'b0} + l_c;
 wire [7:0]  steps     = (nr == 2'd1) ? three_c :
                         (nr == 2'd2) ? {three_c[6:0], 1'b0} : three_c + {three_c[6:0], 1'b0};
-wire [7:0]  k0        = (e_ky0 == 2'd0) ? 8'd0 : (e_ky0 == 2'd1) ? three_c : {three_c[6:0], 1'b0};
-wire [7:0]  x_left    = ow - e_x0;
+wire [7:0]  k0        = (f_ky0 == 2'd0) ? 8'd0 : (f_ky0 == 2'd1) ? three_c : {three_c[6:0], 1'b0};
+wire [7:0]  x_left    = ow - f_x0;
 wire [2:0]  lanes     = (x_left < 8'd4) ? x_left[2:0] : 3'd4;
-wire [7:0]  more_f_n  = e_f0 + 8'd4;
+wire [7:0]  more_f_n  = f_f0 + 8'd4;
 wire        more_f    = more_f_n < l_f;
-wire        more_x    = e_x0 + 8'd4 < ow;
+wire        more_x    = f_x0 + 8'd4 < ow;
+wire        last_pc   = (f_ky0 + nr == 2'd3);
 wire [6:0]  n_param   = {l_f[5:0], 1'b0};  // 2F reads: F biases, then F scales
 
 // 2x2 max pooling of one word (4 filters) of the two rows
 function [7:0] max2(input [7:0] a, input [7:0] b);
     max2 = ($signed(a) > $signed(b)) ? a : b;
 endfunction
-wire [4:0]  pxa = {e_px[3:0], 1'b0};
-wire [31:0] p00 = rowbuf[{1'b0, pxa,        e_fg[1:0]}];
-wire [31:0] p01 = rowbuf[{1'b0, pxa + 5'd1, e_fg[1:0]}];
-wire [31:0] p10 = rowbuf[{1'b1, pxa,        e_fg[1:0]}];
-wire [31:0] p11 = rowbuf[{1'b1, pxa + 5'd1, e_fg[1:0]}];
+wire [4:0]  pxa = {c_px[3:0], 1'b0};
+wire [31:0] p00 = rowbuf[{1'b0, pxa,        c_fg[1:0]}];
+wire [31:0] p01 = rowbuf[{1'b0, pxa + 5'd1, c_fg[1:0]}];
+wire [31:0] p10 = rowbuf[{1'b1, pxa,        c_fg[1:0]}];
+wire [31:0] p11 = rowbuf[{1'b1, pxa + 5'd1, c_fg[1:0]}];
 reg  [31:0] pooled;
 integer pb;
 always @(*)
@@ -458,115 +501,173 @@ reg  [31:0] e_wdata;
 assign mem_we    = e_we;
 assign mem_wdata = e_wdata;
 
-initial begin l_busy = 0; e_st = E_IDLE; e_cmd = 0; e_desc = 0; e_mem = 0; e_we = 0; bg_busy = 0; end
+// one command per cycle: the compute side's run has priority over the fetch side's gather
+wire c_go = (c_st == C_WAIT) && j_valid[c_slot] && j_ready[c_slot] && !busy && !e_cmd;
+wire f_go = (f_st == F_ISSUE) && !c_go && !c_lock && !j_valid[f_slot] &&
+            !g_busy && !g_done && !e_cmd;
+
+initial begin
+    l_busy = 0; f_st = F_IDLE; c_st = C_IDLE; e_cmd = 0; e_desc = 0; e_mem = 0; e_we = 0;
+    bg_busy = 0; c_copy = 0; e_gath = 0;
+    j_valid[0] = 0; j_valid[1] = 0; j_ready[0] = 0; j_ready[1] = 0;
+end
 
 always @(posedge clk) begin
-    e_cmd <= 1'b0;  e_desc <= 1'b0;  e_we <= 4'b0;
+    e_cmd <= 1'b0;  e_desc <= 1'b0;  e_we <= 4'b0;  c_copy <= 1'b0;
     if (bg_busy) begin
         if (bg_i == bg_n - 3'd1) bg_busy <= 1'b0;
         else                     bg_i    <= bg_i + 3'd1;
     end
+    // a job's operands are complete one cycle after the gather engine's last write
+    if (g_done && e_gath) begin
+        j_ready[g_slot] <= 1'b1;  e_gath <= 1'b0;
+    end
     if (reset) begin
-        l_busy <= 1'b0;  e_st <= E_IDLE;  e_mem <= 1'b0;  bg_busy <= 1'b0;
-    end else case (e_st)
-        E_IDLE: if (l_start) begin
-            l_busy <= 1'b1;
-            e_py <= 0;  e_d <= 1'b0;  e_x0 <= 0;  e_f0 <= 0;  e_ky0 <= 0;  e_i <= 0;
-            e_mem <= 1'b1;  e_maddr <= l_bias;        // PARAM read 0: bias of filter 0
-            e_st <= E_PARAM;
-        end
-        // once per layer: the address of read e_i is on port B now; its word arrives next cycle
-        // and is written into p_bias / p_mult by the block below
-        E_PARAM: begin
-            if ({1'b0, e_i} == n_param) begin
-                e_mem <= 1'b0;  e_st <= E_SETUP;
-            end else begin
-                e_i <= e_i + 1'b1;
-                if ({1'b0, e_i} + 7'd1 < {1'b0, l_f[5:0]})
-                    e_maddr <= l_bias + {24'b0, e_i + 6'd1, 2'b00};
-                else
-                    e_maddr <= l_mult + {24'b0, e_i + 6'd1 - l_f[5:0], 2'b00};
+        l_busy <= 1'b0;  f_st <= F_IDLE;  c_st <= C_IDLE;  e_mem <= 1'b0;  bg_busy <= 1'b0;
+        j_valid[0] <= 1'b0;  j_valid[1] <= 1'b0;  e_gath <= 1'b0;
+    end else begin
+        // ---------------- fetch side ----------------
+        case (f_st)
+            F_IDLE: if (l_start) begin
+                l_busy <= 1'b1;
+                f_py <= 0;  f_d <= 1'b0;  f_x0 <= 0;  f_f0 <= 0;  f_ky0 <= 0;  f_i <= 0;
+                f_slot <= 1'b0;  f_abank <= 1'b1;  f_done <= 1'b0;
+                j_valid[0] <= 1'b0;  j_valid[1] <= 1'b0;
+                e_mem <= 1'b1;  e_maddr <= l_bias;    // PARAM read 0: bias of filter 0
+                f_st <= F_PARAM;
+                c_slot <= 1'b0;  c_py <= 0;  c_lock <= 1'b0;  c_st <= C_WAIT;
             end
-        end
-        // descriptors for this piece: A = patches of pixels x0.. (kernel rows ky0..), B = weights;
-        // this group's 4 biases and scales are copied into the output stage (block below)
-        E_SETUP: begin
-            e_abase  <= l_in + (({24'b0, oy} + {30'b0, e_ky0}) * {24'b0, l_w} + {24'b0, e_x0}) * {24'b0, l_c};
-            e_bbase  <= l_wt + {24'b0, k0} * {24'b0, l_f} + {24'b0, e_f0};
-            e_an0    <= l_c;    e_an2 <= {6'b0, nr};    e_lanes <= lanes;
-            e_as1    <= {8'b0, l_c};
-            e_as2    <= {8'b0, l_w} * {8'b0, l_c};
-            e_bn0    <= steps;  e_bs0 <= {8'b0, l_f};
-            // A stays in the array between filter groups when the whole patch fits in one run
-            e_need_a <= (l_rpr < 8'd3) || (e_f0 == 8'd0);
-            e_last_piece <= (e_ky0 + nr == 2'd3);
-            e_nr     <= nr;
-            e_st     <= E_CMD;
-        end
-        E_CMD: begin                               // gather B, gather A if needed, run
-            e_desc <= 1'b1;  e_cmd <= 1'b1;
-            e_bits <= {1'b1, e_need_a, e_ky0 == 2'd0, 1'b1, e_bn0};
-            e_st   <= E_WAIT;
-        end
-        E_WAIT: if (!busy && !g_busy && !g_done && !e_cmd) begin
-            if (!e_last_piece) begin
-                e_ky0 <= e_ky0 + e_nr;  e_st <= E_SETUP;
-            end else if (q_ready && !bg_busy) begin
-                // latch the results for the background store, then go straight on
-                qh[0] <= q[0];  qh[1] <= q[1];  qh[2] <= q[2];  qh[3] <= q[3];
-                bg_busy <= 1'b1;  bg_i <= 3'd0;  bg_n <= lanes;
-                bg_d <= e_d;  bg_x <= e_x0[4:0];  bg_g <= e_f0[3:2];
-                e_ky0 <= 0;
-                if (more_f) begin
-                    e_f0 <= more_f_n;  e_st <= E_SETUP;
+            // once per layer: read e_i's address is on port B now, its word arrives next cycle
+            // and is written into p_bias / p_mult by the block below
+            F_PARAM: begin
+                if ({1'b0, f_i} == n_param) begin
+                    e_mem <= 1'b0;  f_st <= F_SETUP;
                 end else begin
-                    e_f0 <= 0;
-                    if (more_x || !e_d) begin
-                        if (more_x) e_x0 <= e_x0 + 8'd4;
-                        else begin e_x0 <= 0;  e_d <= 1'b1; end
-                        e_st <= E_SETUP;
-                    end else begin                 // both rows done: pool them
-                        e_x0 <= 0;  e_px <= 0;  e_fg <= 0;  e_st <= E_LAND;
+                    f_i <= f_i + 1'b1;
+                    if ({1'b0, f_i} + 7'd1 < {1'b0, l_f[5:0]})
+                        e_maddr <= l_bias + {24'b0, f_i + 6'd1, 2'b00};
+                    else
+                        e_maddr <= l_mult + {24'b0, f_i + 6'd1 - l_f[5:0], 2'b00};
+                end
+            end
+            // descriptors of the next job: A = patches of pixels x0.. (kernel rows ky0..),
+            // B = weights of filters f0..f0+3
+            F_SETUP: begin
+                e_abase  <= l_in + (({24'b0, oy} + {30'b0, f_ky0}) * {24'b0, l_w} + {24'b0, f_x0}) * {24'b0, l_c};
+                e_bbase  <= l_wt + {24'b0, k0} * {24'b0, l_f} + {24'b0, f_f0};
+                e_an0    <= l_c;    e_an2 <= {6'b0, nr};    e_lanes <= lanes;
+                e_as1    <= {8'b0, l_c};
+                e_as2    <= {8'b0, l_w} * {8'b0, l_c};
+                e_bn0    <= steps;  e_bs0 <= {8'b0, l_f};
+                f_steps  <= steps;
+                f_need_a <= (l_rpr < 8'd3) || (f_f0 == 8'd0);
+                f_first  <= (f_ky0 == 2'd0);
+                f_last   <= last_pc;
+                f_endpair  <= last_pc && !more_f && !more_x && f_d;
+                f_endlayer <= last_pc && !more_f && !more_x && f_d && (f_py + 8'd1 >= l_ph);
+                f_st     <= F_ISSUE;
+            end
+            // gather the job's operands (B always, A when it needs a new patch) into free banks
+            F_ISSUE: if (f_go) begin
+                e_desc <= 1'b1;  e_cmd <= 1'b1;
+                e_bits <= {f_slot, f_need_a ? !f_abank : f_abank, 1'b0, 1'b1, f_need_a, 1'b0, 1'b0, 8'd0};
+                if (f_need_a) f_abank <= !f_abank;
+                e_gath <= 1'b1;  g_slot <= f_slot;
+                j_valid[f_slot] <= 1'b1;  j_ready[f_slot] <= 1'b0;
+                j_k[f_slot] <= f_steps;  j_clear[f_slot] <= f_first;  j_last[f_slot] <= f_last;
+                j_abank[f_slot] <= f_need_a ? !f_abank : f_abank;
+                j_endpair[f_slot] <= f_endpair;  j_endlayer[f_slot] <= f_endlayer;
+                // the slot is free now (its previous job has run), so the job's identity can go in
+                j_d[f_slot] <= f_d;  j_x0[f_slot] <= f_x0;  j_f0[f_slot] <= f_f0;  j_lanes[f_slot] <= lanes;
+                f_slot <= !f_slot;
+                // next job
+                if (!f_last) begin
+                    f_ky0 <= f_ky0 + nr;  f_st <= F_SETUP;
+                end else begin
+                    f_ky0 <= 0;
+                    if (more_f) f_f0 <= more_f_n;
+                    else begin
+                        f_f0 <= 0;
+                        if (more_x) f_x0 <= f_x0 + 8'd4;
+                        else begin
+                            f_x0 <= 0;
+                            if (!f_d) f_d <= 1'b1;
+                            else begin f_d <= 1'b0;  f_py <= f_py + 1'b1; end
+                        end
                     end
+                    f_st <= f_endlayer ? F_IDLE : F_SETUP;
+                    if (f_endlayer) f_done <= 1'b1;
                 end
             end
-        end
-        // pooling starts once the background store has written the last result word
-        E_LAND: if (!bg_busy) e_st <= E_POOL;
-        // one pooled word (4 filters of one output pixel) per cycle; the write is on port B
-        // in the following cycle
-        E_POOL: begin
-            e_mem   <= 1'b1;
-            e_maddr <= l_out + ({24'b0, e_py} * {24'b0, l_pw} + {24'b0, e_px}) * {24'b0, l_f}
-                             + {22'b0, e_fg, 2'b00};
-            e_we    <= 4'b1111;
-            e_wdata <= pooled;
-            if ({e_fg[5:0], 2'b00} + 8'd4 < l_f) e_fg <= e_fg + 1'b1;
-            else begin
-                e_fg <= 0;
-                if (e_px + 8'd1 < l_pw) e_px <= e_px + 1'b1;
+            default: f_st <= F_IDLE;
+        endcase
+
+        // ---------------- compute side ----------------
+        case (c_st)
+            C_IDLE: ;
+            // run the oldest job once its operands are complete
+            C_WAIT: if (c_go) begin
+                e_cmd  <= 1'b1;
+                e_bits <= {c_slot, j_abank[c_slot], 1'b0, 1'b0, 1'b0, j_clear[c_slot], 1'b1, j_k[c_slot]};
+                c_copy <= 1'b1;  c_f0 <= j_f0[c_slot];
+                c_last <= j_last[c_slot];  c_endpair <= j_endpair[c_slot];  c_endlayer <= j_endlayer[c_slot];
+                c_d <= j_d[c_slot];  c_x0 <= j_x0[c_slot];  c_lanes <= j_lanes[c_slot];
+                c_st <= C_RUN;
+            end
+            // the array has read the operands when the run ends: free the slot and its banks
+            C_RUN: if (!busy && !e_cmd) begin
+                j_valid[c_slot] <= 1'b0;
+                c_slot <= !c_slot;
+                c_st <= c_last ? C_OUT : C_WAIT;
+            end
+            // a finished tile: wait for the output stage, latch the results for the background
+            // store, then the next job (or pool once the row pair is complete)
+            C_OUT: if (q_ready && !bg_busy) begin
+                qh[0] <= q[0];  qh[1] <= q[1];  qh[2] <= q[2];  qh[3] <= q[3];
+                bg_busy <= 1'b1;  bg_i <= 3'd0;  bg_n <= c_lanes;
+                bg_d <= c_d;  bg_x <= c_x0[4:0];  bg_g <= c_f0[3:2];
+                if (c_endpair) begin
+                    c_lock <= 1'b1;  c_px <= 0;  c_fg <= 0;  c_st <= C_LAND;
+                end else
+                    c_st <= C_WAIT;
+            end
+            // pooling writes through port B: wait for the last result word and for port B
+            // (the fetch side issues nothing while c_lock is set)
+            C_LAND: if (!bg_busy && !g_busy && !g_done && !e_cmd) begin
+                c_st <= C_POOL;
+            end
+            // one pooled word (4 filters of one output pixel) per cycle; the write is on port B
+            // in the following cycle
+            C_POOL: begin
+                e_mem   <= 1'b1;
+                e_maddr <= l_out + ({24'b0, c_py} * {24'b0, l_pw} + {24'b0, c_px}) * {24'b0, l_f}
+                                 + {22'b0, c_fg, 2'b00};
+                e_we    <= 4'b1111;
+                e_wdata <= pooled;
+                if ({c_fg[5:0], 2'b00} + 8'd4 < l_f) c_fg <= c_fg + 1'b1;
                 else begin
-                    e_finish <= (e_py + 8'd1 >= l_ph);
-                    e_st <= E_TURN;
+                    c_fg <= 0;
+                    if (c_px + 8'd1 < l_pw) c_px <= c_px + 1'b1;
+                    else c_st <= C_TURN;
                 end
             end
-        end
-        // the last pooled write is on port B this cycle; then the next row pair, or done
-        E_TURN: begin
-            e_mem <= 1'b0;
-            if (e_finish) begin
-                l_busy <= 1'b0;  e_st <= E_IDLE;
-            end else begin
-                e_py <= e_py + 1'b1;  e_d <= 1'b0;  e_st <= E_SETUP;
+            // the last pooled write is on port B this cycle; then the next row pair, or done
+            C_TURN: begin
+                e_mem <= 1'b0;  c_lock <= 1'b0;
+                if (c_endlayer) begin
+                    l_busy <= 1'b0;  c_st <= C_IDLE;
+                end else begin
+                    c_py <= c_py + 1'b1;  c_st <= C_WAIT;
+                end
             end
-        end
-        default: e_st <= E_IDLE;
-    endcase
+            default: c_st <= C_IDLE;
+        endcase
+    end
 end
 
-// p_bias / p_mult: PARAM read r arrives while e_i = r + 1 (reads 0..F-1 biases, F..2F-1 scales)
-wire       e_pm_we = (e_st == E_PARAM) && (e_i != 6'd0);
-wire [5:0] e_pm_r  = e_i - 6'd1;
+// p_bias / p_mult: PARAM read r arrives while f_i = r + 1 (reads 0..F-1 biases, F..2F-1 scales)
+wire       e_pm_we = (f_st == F_PARAM) && (f_i != 6'd0);
+wire [5:0] e_pm_r  = f_i - 6'd1;
 wire [5:0] e_pm_m  = e_pm_r - l_f[5:0];
 always @(posedge clk)
     if (e_pm_we) begin
@@ -574,13 +675,13 @@ always @(posedge clk)
         else                   p_mult[e_pm_m[3:0]] <= mem_rdata[17:0];
     end
 
-// bias / mult of the output stage: written by the CPU, or copied from p_bias / p_mult for the
-// filter group the engine is setting up
+// bias / mult of the output stage: written by the CPU, or copied from p_bias / p_mult when the
+// engine starts a run (the previous tile's output stage is finished by then)
 always @(posedge clk)
-    if (e_st == E_SETUP) begin
+    if (c_copy) begin
         for (n = 0; n < N; n = n + 1) begin
-            bias[n] <= p_bias[{e_f0[3:2], n[1:0]}];
-            mult[n] <= p_mult[{e_f0[3:2], n[1:0]}];
+            bias[n] <= p_bias[{c_f0[3:2], n[1:0]}];
+            mult[n] <= p_mult[{c_f0[3:2], n[1:0]}];
         end
     end else if (wr_en && region == 2'd3) begin
         if (sub == 2'd2) bias[sidx] <= wr_data;
