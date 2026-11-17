@@ -77,6 +77,9 @@ end
 // the accelerator is busy.
 reg         busy;                          // the array is running
 reg         g_busy;                        // the gather engine is working
+// one-cycle pulse after the gather engine has written its last word (a cycle after the last
+// data arrives, so the run never reads a buffer entry that is still being written)
+reg         g_done;
 reg  [KW:0] k_len;
 reg  [7:0]  t;                             // step counter while busy
 wire [7:0]  k8   = {{(7-KW){1'b0}}, k_len};  // K widened to the counter's width
@@ -89,9 +92,6 @@ wire cmd_gather = cmd && (wr_data[10] || wr_data[11]);
 // a run starts straight from the command, or when the gathering it asked for is done
 reg         pend_run, pend_clear;
 reg  [KW:0] pend_k;
-// one-cycle pulse after the gather engine has written its last word (a cycle after the last
-// data arrives, so the run never reads a buffer entry that is still being written)
-reg         g_done;
 wire start = (cmd && wr_data[8] && !cmd_gather) || (g_done && pend_run);
 wire clear = start && (cmd ? wr_data[9] : pend_clear);
 
