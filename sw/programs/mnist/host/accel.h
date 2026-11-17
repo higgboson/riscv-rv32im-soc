@@ -5,15 +5,29 @@
 #define ACCEL_H
 #include <stdint.h>
 
-#define ACCEL_START  (1u << 8)
-#define ACCEL_CLEAR  (1u << 9)
+#define ACCEL_START    (1u << 8)
+#define ACCEL_CLEAR    (1u << 9)
+#define ACCEL_GATHER_A (1u << 10)
+#define ACCEL_GATHER_B (1u << 11)
 #define ACCEL_MAXK   64
 #define ACCEL_QREADY 2u
 
 extern uint32_t accel_ctrl, ACCEL_A[64], ACCEL_B[64], ACCEL_Q[4], ACCEL_MULT[4];
+extern uint32_t ACCEL_GA[4], ACCEL_GB[4];
+extern char     accel_anchor;              // PC addresses are offsets from this byte
+#define ACCEL_ADDR(p) ((uint32_t)((char *)(p) - &accel_anchor))
 extern int32_t  ACCEL_C[16], ACCEL_BIAS[4];
 int accel_run(void);
 
 #define ACCEL_CTRL   accel_ctrl
 #define ACCEL_BUSY   (accel_run(), 0u)
+
+static inline void accel_gather_desc(uint32_t *d, const void *base, int n0, int n1, int n2,
+                                     int lanes, int s0, int s1, int s2, int sl)
+{
+    d[0] = ACCEL_ADDR(base);
+    d[1] = (uint32_t)n0 | (uint32_t)n1 << 8 | (uint32_t)n2 << 16 | (uint32_t)lanes << 24;
+    d[2] = (uint32_t)s0 | (uint32_t)s1 << 16;
+    d[3] = (uint32_t)s2 | (uint32_t)sl << 16;
+}
 #endif

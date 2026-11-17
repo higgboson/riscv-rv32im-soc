@@ -18,9 +18,13 @@ void conv1_cpu(const int8_t *x,  int8_t *p1);                 // 28x28x1  -> 13x
 void conv2_cpu(const int8_t *p1, int8_t *p2);                 // 13x13x8  -> 5x5x16
 void fc_cpu   (const int8_t *p2, int32_t *scores);            // 400      -> 10
 
-void conv1_accel(const int8_t *x,  int8_t *p1);
+void conv1_accel(const int8_t *x,  int8_t *p1);              // accelerator fed by the CPU
 void conv2_accel(const int8_t *p1, int8_t *p2);
 void fc_accel   (const int8_t *p2, int32_t *scores);
+
+void conv1_gather(const int8_t *x,  int8_t *p1);              // accelerator with gather engine
+void conv2_gather(const int8_t *p1, int8_t *p2);
+void fc_gather   (const int8_t *p2, int32_t *scores);
 
 int  cnn_argmax(const int32_t *scores);
 

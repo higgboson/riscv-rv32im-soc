@@ -23,11 +23,31 @@
 #define ACCEL_BIAS   ((volatile int32_t  *)(ACCEL_BASE + 0x380))
 #define ACCEL_MULT   ((volatile uint32_t *)(ACCEL_BASE + 0x3C0))
 
-#define ACCEL_START  (1u << 8)
-#define ACCEL_CLEAR  (1u << 9)
+#define ACCEL_GA     ((volatile uint32_t *)(ACCEL_BASE + 0x010))   // gather descriptor for A
+#define ACCEL_GB     ((volatile uint32_t *)(ACCEL_BASE + 0x020))   // and for B
+
+#define ACCEL_START    (1u << 8)
+#define ACCEL_CLEAR    (1u << 9)
+#define ACCEL_GATHER_A (1u << 10)
+#define ACCEL_GATHER_B (1u << 11)
 #define ACCEL_BUSY   1u
 #define ACCEL_QREADY 2u
 #define ACCEL_MAXK   64
+
+// address of a variable as the gather engine sees it
+#define ACCEL_ADDR(p) ((uint32_t)(uintptr_t)(p))
+
+// gather descriptor: step k = (i2, i1, i0), i0 innermost, lane i reads
+// base + i2*s2 + i1*s1 + i0*s0 + i*sl (see code/accel/matmul_accel.v)
+static inline void accel_gather_desc(volatile uint32_t *d, const void *base,
+                                     int n0, int n1, int n2, int lanes,
+                                     int s0, int s1, int s2, int sl)
+{
+    d[0] = ACCEL_ADDR(base);
+    d[1] = (uint32_t)n0 | (uint32_t)n1 << 8 | (uint32_t)n2 << 16 | (uint32_t)lanes << 24;
+    d[2] = (uint32_t)s0 | (uint32_t)s1 << 16;
+    d[3] = (uint32_t)s2 | (uint32_t)sl << 16;
+}
 
 static inline void accel_matmul(int m, int n, int k,
                                 const int8_t *at,   // K x M, transposed A

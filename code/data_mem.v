@@ -9,6 +9,10 @@
 // A load right after a store to the same word sees the new data, because the store was
 // written one cycle earlier.
 //
+// Port B is read-only and belongs to the accelerator's gather engine. It reads one aligned
+// word per cycle on the RISING edge (a second port of the same block RAM, so the CPU never
+// waits for it); the word appears one cycle after the address.
+//
 // Only the low address bits are used, so the memory repeats across the address space.
 // The software puts data at 0x0001_0000, which lands at offset 0 here.
 // Accesses must be aligned (no misaligned loads / stores).
@@ -17,7 +21,9 @@ module data_mem #(parameter WORDS = 4096) (
     input        clk, wr_en,
     input  [2:0] funct3,
     input  [31:0] wr_addr, wr_data,
-    output reg [31:0] rd_data_mem
+    output reg [31:0] rd_data_mem,
+    input  [31:0] b_addr,
+    output reg [31:0] b_data
 );
 
 localparam AW = $clog2(WORDS);
@@ -80,6 +86,9 @@ always @(negedge clk) begin
     if (wr_en && be[3]) mem3[word_addr] <= wdata[31:24];
     q[31:24] <= mem3[word_addr];
 end
+
+wire [AW-1:0] b_word = b_addr[AW+1:2];
+always @(posedge clk) b_data <= {mem3[b_word], mem2[b_word], mem1[b_word], mem0[b_word]};
 
 // Loads return the whole word. Picking the byte / half and extending it is done later,
 // in Writeback (load_extend.v), where there is a full clock cycle for it.

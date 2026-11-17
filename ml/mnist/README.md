@@ -35,10 +35,11 @@ python3 quantize.py
 python3 gen_c.py ../../sw/programs/mnist
 ```
 
-Check both C versions against the golden model on all 10,000 images (from this folder):
+Check all three C versions (CPU, array fed by the CPU, array with the gather engine) against
+the golden model on all 10,000 images (from this folder):
 
 ```
 cc -O2 -I../../sw/programs/mnist/host -I../../sw/programs/mnist ../../sw/programs/mnist/host/*.c \
-   ../../sw/programs/mnist/cnn_cpu.c ../../sw/programs/mnist/cnn_accel.c ../../sw/programs/mnist/weights.c -o host_check
+   ../../sw/programs/mnist/cnn_*.c ../../sw/programs/mnist/weights.c -o host_check
 ./host_check
 ```
