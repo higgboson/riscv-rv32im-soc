@@ -11,6 +11,10 @@ counters and a full verification flow. Runs on a **Digilent Basys 3 (Xilinx Arti
 UART console and a UART program loader, so new programs load in under a second without
 rebuilding the bitstream.
 
+Runs a **handwritten-digit recognition neural network** (INT8 CNN, 98.74 % on MNIST) on its own
+**systolic-array accelerator with a hardware gather engine**: **11.4x faster** than the CPU
+alone, measured on the board, with every output bit-identical to a Python golden model.
+
 Hardened into a **SkyWater 130 nm layout** (RTL to GDSII with LibreLane), and verified with two **UVM** environments on Cadence Xcelium (constrained-random programs checked
 commit by commit against a C reference model over DPI-C, SVA, functional and code coverage in
 IMC), with planted bugs to prove the testbenches catch real failures.
@@ -18,6 +22,13 @@ IMC), with planted bugs to prove the testbenches catch real failures.
 ## Highlights
 
 <table>
+<tr>
+<td width="50%"><img src="docs/images/nn/basys3_mnist_uart.png" alt="MNIST on the board"><br><b>A neural network on my CPU, measured on the Basys 3:</b> a small INT8 CNN recognises MNIST digits three ways: CPU only, accelerator fed by the CPU, accelerator with its gather engine. The hardware cycle counter times every layer; the board numbers are identical to RTL simulation and every score matches the Python golden model. <a href="#neural-network-on-the-soc-mnist">Details</a></td>
+<td width="50%"><img src="docs/images/nn/mnist_speedup.png" alt="speedup"><br><b>11.4x faster inference:</b> 44.1 ms per image on the CPU, 3.9 ms with the accelerator (258 images/s at 50 MHz). The first accelerator version was only 4.3x because the CPU spent its time moving data; measuring that is what led to the gather engine.</td>
+</tr>
+<tr>
+<td colspan="2"><img src="docs/images/nn/accelerator_dataflow.png" alt="accelerator data flow"><br><b>What I built for it:</b> a gather engine that reads the image patches and weights straight from data memory through the block RAM's second port (convolution turned into matrix multiplication, "im2col", in hardware), and an output stage that adds the bias, rescales to 8 bits and applies ReLU. The CPU now only describes where the data is and pools the results.</td>
+</tr>
 <tr>
 <td width="50%"><img src="docs/images/asic/chip_full.png" alt="sky130 layout"><br><b>The core as a chip:</b> hardened on SkyWater 130 nm with LibreLane. 0.52 mm², about 18k cells, DRC/LVS clean, timing closed at 20 MHz in all corners. <a href="asic/riscv_cpu/README.md">Layout details</a></td>
 <td width="50%"><img src="docs/images/asic/chip_net_traced.png" alt="traced net"><br><b>Down to the transistors:</b> one signal traced through the layout, from a cell output on PMOS/NMOS diffusion, over metal 1 and a via, to the gates of two other cells.</td>
@@ -52,7 +63,8 @@ IMC), with planted bugs to prove the testbenches catch real failures.
 | Software | GCC (`-march=rv32im`), linker script, startup code, small console library |
 | FPGA | Basys 3 (Artix-7 XC7A35T): MMCM clocking, UART console, 7-segment display, LEDs, switches, buttons |
 | Program loader | hardware UART loader with checksum: `python sw/load.py COM5 bench` |
-| Accelerator | 4x4 INT8 systolic array (16 MACs/cycle), memory mapped, C driver: **10.5x** faster 32x32 matmul |
+| Accelerator | 4x4 INT8 systolic array (16 MACs/cycle) with a **gather engine** (reads its own operands from data memory: im2col in hardware) and an **output stage** (bias, rescale, ReLU in hardware). 10.5x faster 32x32 matmul |
+| Neural network | INT8 CNN for MNIST (98.74 %), trained in NumPy, bit-exact C on the SoC: **11.4x** faster than the CPU on the board ([details](#neural-network-on-the-soc-mnist)) |
 | ASIC | Hardened on SkyWater 130 nm with LibreLane: 0.52 mm², DRC/LVS clean, timing closed at 20 MHz in all corners ([details](asic/riscv_cpu/README.md)) |
 | Verification | UVM on Xcelium + IMC: 48/48 riscv-tests in UVM, 17/17 regression tests pass, 100% functional coverage, SVA, bug injection |
 
@@ -86,7 +98,7 @@ See [`assets/architecture.pdf`](assets/architecture.pdf) for the pipeline datapa
 | `0x1000_0028` | | SWITCHES |
 | `0x1000_002C` | | BUTTONS |
 | `0x1000_0030` | | UART_RX: received byte |
-| `0x2000_0000` | | Matrix accelerator: CTRL, A / B buffers, C results (see `docs/accelerator_notes.md`) |
+| `0x2000_0000` | | Matrix accelerator: CTRL, gather descriptors, A / B buffers, C results, INT8 results, bias / scale (register list at the top of `code/accel/matmul_accel.v`) |
 
 ## Branch prediction results
 
@@ -119,7 +131,70 @@ steps takes K + 6 cycles. Details and design reasoning: [`docs/accelerator_notes
 | CPU + accelerator | 22,806 (**10.5x faster**, results identical) |
 
 About 90 % of the accelerated time is the CPU moving data in and out; the array computes for
-only ~2,400 cycles. A DMA engine is the natural next step.
+only ~2,400 cycles. That observation led to the gather engine below.
+
+## Neural network on the SoC (MNIST)
+
+A small convolutional network recognises handwritten digits (28x28 images from MNIST),
+trained in plain NumPy, converted to 8-bit integers, and run on the SoC in C:
+
+```
+28x28 image -> conv 3x3, 8 filters, ReLU -> 2x2 max pool -> 13x13x8
+            -> conv 3x3, 16 filters, ReLU -> 2x2 max pool -> 5x5x16
+            -> fully connected 400 -> 10 scores (the largest is the digit)
+5,258 weights, about 168,000 multiply-adds per image
+```
+
+**Accuracy** on the 10,000 MNIST test images: 98.78 % in floating point, **98.74 % in INT8**.
+The INT8 network is defined by a golden model (`ml/mnist/quantize.py`): every other version
+must produce exactly its scores, bit for bit.
+
+**How a convolution runs on a matrix-multiply array.** Each output pixel's 3x3xC input patch
+becomes one row of a matrix A and each filter one column of B, so A x B is the convolution
+("im2col", the way TPUs and NPUs run CNNs). The array computes 4 pixels x 4 filters at a time.
+
+**Three versions, measured on the Basys 3** (`sw/programs/mnist`, cycles per image from the
+hardware counter; identical to RTL simulation):
+
+| Layer | CPU only | Array fed by the CPU | Array + gather engine | Speedup |
+|---|---|---|---|---|
+| conv1 | 1,112,251 | 239,670 | **104,073** | 10.7x |
+| conv2 | 1,061,655 | 251,422 | **80,336** | 13.2x |
+| fully connected | 28,136 | 11,696 | **4,629** | 6.1x |
+| **Total** | **2,206,758** | **507,504 (4.3x)** | **193,754 (11.4x)** | |
+| Per image at 50 MHz | 44.1 ms | 10.2 ms | **3.9 ms (258 images/s)** | |
+
+**How the speedup was found, step by step:**
+
+1. **Array fed by the CPU: 3.3x at first.** Counting the cycles showed the array was busy only
+   about 2.6 % of the time. The CPU spent the rest building patches, copying words into the
+   array, and rescaling every result with a 64-bit multiply.
+2. **Output stage (4.3x):** bias, rescale to 8 bits and ReLU in hardware, in the 6 cycles after a
+   run, so the CPU reads 4 finished words instead of 16 sums.
+3. **Gather engine (11.4x):** the accelerator reads its own operands through the data memory's
+   second block-RAM port. The CPU writes a descriptor (start address, three nested loop counts
+   and byte strides, and the gap between the 4 pixels) and one command; the engine builds the
+   im2col patches, loads the weights and starts the run.
+
+**Verification:**
+
+- **Accelerator unit test:** the output stage is checked on every tile with random bias and
+  scale. Half of the tiles load through the gather engine, from a memory model with random
+  contents, with random descriptors and alignments. 3,000 tiles pass. Three bugs planted in the
+  engine are all caught; one was missed at first, which led to a new test case.
+- **Software:** all three C versions match the golden model on all 10,000 test images (on the
+  PC, with a software model of the accelerator) and on the RTL and the board.
+- The full regression (riscv-tests, random programs, board tests, e-Yantra) still passes.
+
+| Basys 3 after the accelerator work | Before | Now |
+|---|---|---|
+| Slice LUTs | 1,939 | 4,869 (23.4 %) |
+| Slice registers | 1,207 | 2,227 (5.4 %) |
+| Block RAM | 9 tiles | 9 tiles: the gather engine uses the second port of the same RAMs |
+| DSP48E1 | 4 | 12 (8 in the output stage; 78 of 90 still free for a bigger array) |
+| Timing at 50 MHz | +2.72 ns | met, worst slack +2.19 ns |
+
+Training, quantisation and the PC check: [`ml/mnist`](ml/mnist/README.md).
 
 ## Verification
 
@@ -170,12 +245,15 @@ The board reports 276,798 cycles for the whole suite, exactly the same as RTL si
 
 | Basys 3 (XC7A35T-1, Vivado 2026.1) | |
 |---|---|
-| CPU clock | 50 MHz from the MMCM, timing met (worst slack +2.72 ns, about 58 MHz max) |
-| Slice LUTs | 1,939 / 20,800 (9.3 %) |
-| Slice registers | 1,207 / 41,600 (2.9 %) |
-| Block RAM | 9 tiles (16 KB IMEM + 16 KB DMEM) |
-| DSP48E1 | 4 (single-cycle multiplier) |
-| Critical path | forwarding compare -> ALU / multiplier -> EX/MEM register |
+| CPU clock | 50 MHz from the MMCM, timing met (worst slack +2.19 ns) |
+| Slice LUTs | 4,869 / 20,800 (23.4 %), of which the accelerator 2,730 |
+| Slice registers | 2,227 / 41,600 (5.4 %) |
+| Block RAM | 9 tiles (16 KB IMEM + 16 KB DMEM, DMEM dual-ported for the accelerator) |
+| DSP48E1 | 12 (CPU multiplier 4, accelerator output stage 8) |
+| Worst path | UART loader hold -> data memory write enable (a half-cycle path: memory writes on the falling edge) |
+
+Before the accelerator work: 1,939 LUTs, 1,207 registers, 4 DSPs, worst slack +2.72 ns
+(forwarding compare -> ALU / multiplier -> EX/MEM register).
 
 ## Earlier port: Intel Cyclone IV (Quartus)
 
@@ -244,10 +322,11 @@ the UART loader: `python sw/load.py COM5 hello`.
 code/             RTL: soc.v (CPU + memories + I/O), pl_riscv_cpu.v (e-Yantra wrapper)
 code/components/  pipeline blocks: datapath, hazard unit, ALU, mul/div unit, branch predictor
 code/io/          UART TX/RX, UART program loader, 7-segment driver
-code/accel/       INT8 systolic-array matrix-multiply accelerator
+code/accel/       INT8 systolic-array accelerator: gather engine, array, output stage
+ml/mnist/         CNN training (NumPy), INT8 quantisation, golden model, C generator
 fpga/basys3/      Basys 3 top level, pin constraints, Vivado build / program scripts
 sw/               C toolchain: link.ld, crt0.S, console library, programs/, Makefile
-sw/prebuilt/      hello, bench, demo, ready to load (no RISC-V compiler needed)
+sw/prebuilt/      hello, bench, demo, matmul, mnist, ready to load (no RISC-V compiler needed)
 sw/load.py        sends a program to the board over USB-UART
 verif/            riscv-tests runner, random test generator + reference model, board-level
                   testbench with a UART model, testbenches
@@ -275,19 +354,22 @@ Done:
 - [x] INT8 systolic-array accelerator, memory mapped, driven from C
 - [x] UVM verification of the core and the accelerator (Xcelium + IMC)
 - [x] RTL-to-GDSII of the core on SkyWater 130 nm (LibreLane), timing closed at 20 MHz
+- [x] Handwritten-digit recognition: INT8 CNN (98.74 % on MNIST), bit-exact with a golden model
+- [x] Accelerator output stage (bias, rescale, ReLU) and gather engine (im2col in hardware):
+      11.4x faster CNN inference, measured on the board
 
 Next, in order:
 
-- [ ] **TFT display + touch (2.4" SPI, ILI9341):** SPI controller on the memory map, C driver
-- [ ] **Accelerator demo on the display:** CPU vs accelerator race, then handwritten-digit
-      recognition (small INT8 network running on the systolic array)
+- [ ] **Faster accelerator:** double buffering (fetch the next tile while the array runs),
+      pooling in hardware, then an 8x8 array on DSP slices
+- [ ] **TFT display (2.4" SPI, tested on the board):** SPI controller on the memory map, C driver
+- [ ] **Live demo:** draw a digit with a USB mouse (or touch, once a touch controller is fitted),
+      the board recognises it and shows CPU vs accelerator time on the display
 - [ ] **Interrupts and CSRs:** machine mode, timer interrupt, traps (ecall, illegal instruction),
       official `rv32mi` tests
-- [ ] **DMA for the accelerator:** it fetches its own operands, so data movement stops being
-      the bottleneck
 - [ ] **Two-stage multiplier** (or ALU / PC+4 selected in Memory) to shorten the critical path,
       then re-run the sky130 flow for a higher clock
-- [ ] **Formal verification:** SymbiYosys on the accelerator and DMA, riscv-formal on the core
+- [ ] **Formal verification:** SymbiYosys on the accelerator and gather engine, riscv-formal on the core
 - [ ] **Instruction cache in front of the QSPI flash:** run code straight from flash
 - [ ] **riscv-dv** random instruction tests on the core
 - [ ] **Games:** Snake / Tetris in the UART terminal, then on the TFT display or a VGA
