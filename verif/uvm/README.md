@@ -40,8 +40,8 @@ Each log ends with one line, `TEST PASSED: <test>` or `TEST FAILED: <test> (n er
 | core regression (5 tests, 10 seeds) | **10 / 10 pass**, every register write and store compared |
 | core functional coverage | **235 / 235 bins (100%)**, 7 / 7 pipeline assertions pass |
 | core code coverage | block ~100%, toggle 87% before exclusions; the holes are upper PC bits that a 4 KB program cannot reach, waived with written reasons |
-| accelerator regression (7 tests) | **7 / 7 pass**: 620 jobs in `accel_full_test`, 0 wrong results, 0 wrong run lengths, 166 ignored starts checked |
-| accelerator coverage | covergroups 100%, all 16 PEs 100% code coverage, 6 / 6 assertions pass, 4 / 4 cover properties hit |
+| accelerator regression (7 tests) | **7 / 7 pass**: 620 jobs in `accel_full_test`, 0 wrong results, 0 wrong run lengths, 166 ignored starts checked. Rerun and still 7 / 7 after the output stage and gather engine were added for the CNN |
+| accelerator coverage | covergroups 100% (70 / 70 bins), 6 / 6 assertions pass, 4 / 4 cover properties hit; the 16 PEs 100% of blocks and 98.5% of toggles, the new output stage 100% of blocks |
 | bug planted in the core (load-use stall ignores rs2) | caught: **889 mismatches** in 10 programs, `TEST FAILED` |
 | bug planted in the accelerator (run ends one cycle early) | caught on every job by the SVA (`a_run_length`) and the scoreboard ("took 69 cycles, expected 70") |
 
@@ -79,7 +79,27 @@ Execute), two branch mispredicts flushing Execute, and the divider holding the p
 
 ### Accelerator
 
+Regression after the CNN upgrades (hardware output stage and gather engine in the RTL):
+
 ![accel regression](../../docs/images/uvm/accel_regression.png)
+
+Merged coverage in IMC, and the same numbers as a text report:
+
+![accel IMC overview](../../docs/images/uvm/accel_imc_overview.png)
+![accel coverage summary](../../docs/images/uvm/accel_coverage_summary.png)
+
+The accelerator's own control logic is below 100% because this environment loads operands
+the original way, through the A / B registers. The gather engine added for the CNN is
+verified by the directed testbench `verif/tb_accel.v` (3,000 tiles against a memory model,
+3 planted bugs caught). A gather sequence in this environment is the next step.
+
+Covergroups and assertions:
+
+![accel covergroups](../../docs/images/uvm/accel_covergroups.png)
+![accel assertions](../../docs/images/uvm/accel_assertions.png)
+
+The scoreboard's end-of-test summary (first run):
+
 ![accel scoreboard](../../docs/images/uvm/accel_scoreboard_summary.png)
 
 Cross coverage of K x clear, the extreme INT8 products and the result ranges
@@ -88,10 +108,6 @@ Cross coverage of K x clear, the extreme INT8 products and the result ranges
 ![K x CLEAR](../../docs/images/uvm/accel_cov_k_x_clear.png)
 ![products](../../docs/images/uvm/accel_cov_products.png)
 ![results](../../docs/images/uvm/accel_cov_results.png)
-
-Assertions and cover properties in IMC:
-
-![accel assertions](../../docs/images/uvm/accel_assertions.png)
 
 Bug injection: the run was shortened by one cycle. Both the SVA and the scoreboard catch it:
 

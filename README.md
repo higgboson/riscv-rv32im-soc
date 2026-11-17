@@ -43,7 +43,7 @@ IMC), with planted bugs to prove the testbenches catch real failures.
 </tr>
 <tr>
 <td><img src="docs/images/basys3_demo.gif" alt="Basys 3"><br><b>Running on a Basys 3 FPGA:</b> benchmarks over UART, switches and LEDs, cycle count on the display.</td>
-<td><img src="docs/images/uvm/accel_cov_k_x_clear.png" alt="accelerator coverage"><br><b>INT8 systolic-array accelerator:</b> 10.5x faster matrix multiply; its own UVM environment with cross coverage, SVA on the K+6 cycle run time and 100% covergroups.</td>
+<td><img src="docs/images/uvm/accel_imc_overview.png" alt="accelerator coverage"><br><b>Accelerator verified in UVM:</b> its own environment with cross coverage and SVA on the K+6 cycle run time. After the CNN upgrades: 7/7 tests pass, 100% functional coverage, 10/10 assertions.</td>
 </tr>
 </table>
 
