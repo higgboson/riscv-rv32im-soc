@@ -15,7 +15,7 @@ module top;
         .clk(clk), .reset(aif.reset), .wr_en(aif.wr_en),
         .addr(aif.addr), .wr_data(aif.wr_data), .rd_data(aif.rd_data),
         // the gather engine is not used here (verif/tb_accel.v tests it with a memory model)
-        .mem_addr(), .mem_rdata(32'b0)
+        .mem_addr(), .mem_rdata(32'b0), .mem_we(), .mem_wdata()
     );
 
     // busy is internal; the monitor and the checks in accel_if need it

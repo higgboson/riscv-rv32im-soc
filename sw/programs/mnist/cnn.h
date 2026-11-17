@@ -26,6 +26,13 @@ void conv1_gather(const int8_t *x,  int8_t *p1);              // accelerator wit
 void conv2_gather(const int8_t *p1, int8_t *p2);
 void fc_gather   (const int8_t *p2, int32_t *scores);
 
+void conv1_engine(const int8_t *x,  int8_t *p1);              // one command per layer (layer engine)
+void conv2_engine(const int8_t *p1, int8_t *p2);
+
+// the generic CPU layer, for tests: 3x3 conv, bias, scale, ReLU, 2x2 max pool
+void cnn_conv_pool_cpu(const int8_t *in, int H, int W, int C, int F, const int8_t *wt,
+                       const int32_t *bias, const int32_t *mult, int8_t *out);
+
 int  cnn_argmax(const int32_t *scores);
 
 #endif

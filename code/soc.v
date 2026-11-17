@@ -62,16 +62,18 @@ instr_mem instrmem (clk, PC, Instr, ld_imem_we, ld_waddr, ld_wdata);
 // Top 4 address bits: 0x1 -> I/O, 0x2 -> matrix accelerator, anything else -> data memory
 wire is_mmio  = (DataAdr[31:28] == 4'h1);
 wire is_accel = (DataAdr[31:28] == 4'h2);
-wire [31:0] accel_rdata, accel_mem_addr, accel_mem_data;
+wire [31:0] accel_rdata, accel_mem_addr, accel_mem_data, accel_mem_wdata;
+wire [3:0]  accel_mem_we;
 
 data_mem  datamem  (clk, MemWrite & ~is_mmio & ~is_accel, Store, DataAdr, WriteData, dmem_rdata,
-                    accel_mem_addr, accel_mem_data);
+                    accel_mem_addr, accel_mem_data, accel_mem_we, accel_mem_wdata);
 
 matmul_accel accel (
     .clk(clk), .reset(core_reset),
     .wr_en(MemWrite & is_accel), .addr(DataAdr), .wr_data(WriteData),
     .rd_data(accel_rdata),
-    .mem_addr(accel_mem_addr), .mem_rdata(accel_mem_data)
+    .mem_addr(accel_mem_addr), .mem_rdata(accel_mem_data),
+    .mem_we(accel_mem_we), .mem_wdata(accel_mem_wdata)
 );
 
 mmio #(.CLK_HZ(CLK_HZ), .BAUD(BAUD)) io (

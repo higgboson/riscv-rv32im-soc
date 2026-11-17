@@ -30,6 +30,8 @@
 #define ACCEL_CLEAR    (1u << 9)
 #define ACCEL_GATHER_A (1u << 10)
 #define ACCEL_GATHER_B (1u << 11)
+#define ACCEL_LAYER    (1u << 12)
+#define ACCEL_L      ((volatile uint32_t *)(ACCEL_BASE + 0x030))   // layer engine descriptor
 #define ACCEL_BUSY   1u
 #define ACCEL_QREADY 2u
 #define ACCEL_MAXK   64
@@ -47,6 +49,28 @@ static inline void accel_gather_desc(volatile uint32_t *d, const void *base,
     d[1] = (uint32_t)n0 | (uint32_t)n1 << 8 | (uint32_t)n2 << 16 | (uint32_t)lanes << 24;
     d[2] = (uint32_t)s0 | (uint32_t)s1 << 16;
     d[3] = (uint32_t)s2 | (uint32_t)sl << 16;
+}
+
+// A whole 3x3 convolution layer with bias, scale, ReLU and 2x2 max pooling on the layer
+// engine. in: (2*PH+2 or more) x W x C, out: PH x PW x F, both INT8, out 4-byte aligned;
+// wt: K x F (K = 9*C, order ky, kx, channel). Limits: F a multiple of 4 up to 16,
+// 2*PW <= 32, C <= 21.
+static inline void accel_conv_layer(const int8_t *in, int W, int C, int F, int PH, int PW,
+                                    const int8_t *wt, const int32_t *bias, const int32_t *mult,
+                                    int8_t *out)
+{
+    int rows_per_run = ACCEL_MAXK / (3 * C);
+    if (rows_per_run > 3) rows_per_run = 3;
+    ACCEL_L[0] = ACCEL_ADDR(in);
+    ACCEL_L[1] = ACCEL_ADDR(out);
+    ACCEL_L[2] = ACCEL_ADDR(wt);
+    ACCEL_L[3] = ACCEL_ADDR(bias);
+    ACCEL_L[4] = ACCEL_ADDR(mult);
+    ACCEL_L[5] = (uint32_t)W | (uint32_t)C << 8 | (uint32_t)F << 16 | (uint32_t)PH << 24;
+    ACCEL_L[6] = (uint32_t)PW | (uint32_t)rows_per_run << 8;
+    ACCEL_CTRL = ACCEL_LAYER;
+    while (ACCEL_CTRL & ACCEL_BUSY)
+        ;
 }
 
 static inline void accel_matmul(int m, int n, int k,

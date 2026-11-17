@@ -30,7 +30,7 @@ always @(posedge clk)
 
 matmul_accel dut (.clk(clk), .reset(reset), .wr_en(wr_en), .addr(addr),
                   .wr_data(wr_data), .rd_data(rd_data),
-                  .mem_addr(mem_addr), .mem_rdata(mem_rdata));
+                  .mem_addr(mem_addr), .mem_rdata(mem_rdata), .mem_we(), .mem_wdata());
 
 always #5 clk = ~clk;
 

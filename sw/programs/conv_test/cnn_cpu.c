@@ -1,0 +1,1 @@
+../mnist/cnn_cpu.c

@@ -45,6 +45,12 @@ static void conv_pool(const int8_t *in, int H, int W, int C, int F,
             }
 }
 
+void cnn_conv_pool_cpu(const int8_t *in, int H, int W, int C, int F, const int8_t *wt,
+                       const int32_t *bias, const int32_t *mult, int8_t *out)
+{
+    conv_pool(in, H, W, C, F, wt, bias, mult, out);
+}
+
 void conv1_cpu(const int8_t *x,  int8_t *p1) { conv_pool(x,  28, 28, 1,  8, w1t, b1, m1, p1); }
 void conv2_cpu(const int8_t *p1, int8_t *p2) { conv_pool(p1, 13, 13, 8, 16, w2t, b2, m2, p2); }
 
