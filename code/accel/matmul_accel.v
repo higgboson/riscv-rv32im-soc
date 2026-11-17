@@ -51,10 +51,11 @@
 // gives the 3x3xC patches of 4 neighbouring pixels. A command can gather A, then B, then
 // start the run, all while busy stays high.
 //
-// The layer engine runs a whole convolution layer by itself: for every pair of conv output
-// rows, every 4 pixels and every 4 filters it loads that group's bias and scale from memory,
+// The layer engine runs a whole convolution layer by itself: it loads the bias and scale of all
+// filters once, then for every pair of conv output rows, every 4 pixels and every 4 filters it
 // gathers the patches and weights, runs the array (in pieces when the patch has more than 128
-// steps) and keeps the INT8 results of the two rows in a small buffer. Then it writes the
+// steps) and keeps the INT8 results of the two rows in a small buffer (written in the background
+// while the next tile is fetched). Then it writes the
 // 2x2 max-pooled row back to data memory through the same port. The CPU only describes the
 // layer and waits.
 
@@ -396,21 +397,31 @@ always @(posedge clk)
             default: ;
         endcase
 
-localparam E_IDLE = 4'd0, E_PARAM = 4'd1, E_SETUP = 4'd2, E_CMD = 4'd3,
-           E_WAIT = 4'd4, E_STORE = 4'd5, E_POOL = 4'd6, E_TURN = 4'd7, E_LAND = 4'd8;
-reg  [3:0]  e_st;
+localparam E_IDLE = 3'd0, E_PARAM = 3'd1, E_SETUP = 3'd2, E_CMD = 3'd3,
+           E_WAIT = 3'd4, E_LAND = 3'd5, E_POOL = 3'd6, E_TURN = 3'd7;
+reg  [2:0]  e_st;
 reg  [7:0]  e_py, e_x0, e_f0, e_px, e_fg;
 reg         e_d, e_finish;
 reg  [1:0]  e_ky0, e_nr;
-reg  [3:0]  e_i;                           // PARAM: read 0..8, STORE: lane 0..3
+reg  [5:0]  e_i;                           // PARAM: read number 0 .. 2F
 reg         e_need_a, e_last_piece;
+
+// bias and scale of all filters of the layer, loaded once when the layer starts
+reg signed [31:0] p_bias [0:15];
+reg        [17:0] p_mult [0:15];
 
 // two conv output rows of INT8 results; one word = 4 filters of one pixel: {row, x, filter/4}
 reg  [31:0] rowbuf [0:255];
-reg         rb_we;
-reg  [7:0]  rb_widx;
-reg  [31:0] rb_wdata;
-always @(posedge clk) if (rb_we) rowbuf[rb_widx] <= rb_wdata;
+
+// background store: when a tile is finished its 1..4 result words are latched and written into
+// the row buffer one per cycle while the engine already sets up and fetches the next tile
+reg  [31:0] qh [0:N-1];
+reg         bg_busy;
+reg  [2:0]  bg_i, bg_n;
+reg         bg_d;
+reg  [4:0]  bg_x;
+reg  [1:0]  bg_g;
+always @(posedge clk) if (bg_busy) rowbuf[{bg_d, bg_x + {2'b0, bg_i}, bg_g}] <= qh[bg_i[1:0]];
 
 wire [7:0]  ow        = {l_pw[6:0], 1'b0};
 wire [7:0]  oy        = {e_py[6:0], 1'b0} + {7'b0, e_d};
@@ -422,13 +433,10 @@ wire [7:0]  steps     = (nr == 2'd1) ? three_c :
 wire [7:0]  k0        = (e_ky0 == 2'd0) ? 8'd0 : (e_ky0 == 2'd1) ? three_c : {three_c[6:0], 1'b0};
 wire [7:0]  x_left    = ow - e_x0;
 wire [2:0]  lanes     = (x_left < 8'd4) ? x_left[2:0] : 3'd4;
-wire        more_f    = e_f0 + 8'd4 < l_f;
+wire [7:0]  more_f_n  = e_f0 + 8'd4;
+wire        more_f    = more_f_n < l_f;
 wire        more_x    = e_x0 + 8'd4 < ow;
-
-// PARAM read r (0..7): bias of filter f0 + r, then mult of filter f0 + r - 4
-function [31:0] param_addr(input [3:0] r);
-    param_addr = (r[2] ? l_mult : l_bias) + {22'b0, e_f0, 2'b00} + {28'b0, r[1:0], 2'b00};
-endfunction
+wire [6:0]  n_param   = {l_f[5:0], 1'b0};  // 2F reads: F biases, then F scales
 
 // 2x2 max pooling of one word (4 filters) of the two rows
 function [7:0] max2(input [7:0] a, input [7:0] b);
@@ -450,30 +458,38 @@ reg  [31:0] e_wdata;
 assign mem_we    = e_we;
 assign mem_wdata = e_wdata;
 
-initial begin l_busy = 0; e_st = E_IDLE; e_cmd = 0; e_desc = 0; e_mem = 0; e_we = 0; rb_we = 0; end
+initial begin l_busy = 0; e_st = E_IDLE; e_cmd = 0; e_desc = 0; e_mem = 0; e_we = 0; bg_busy = 0; end
 
 always @(posedge clk) begin
-    e_cmd <= 1'b0;  e_desc <= 1'b0;  e_we <= 4'b0;  rb_we <= 1'b0;
+    e_cmd <= 1'b0;  e_desc <= 1'b0;  e_we <= 4'b0;
+    if (bg_busy) begin
+        if (bg_i == bg_n - 3'd1) bg_busy <= 1'b0;
+        else                     bg_i    <= bg_i + 3'd1;
+    end
     if (reset) begin
-        l_busy <= 1'b0;  e_st <= E_IDLE;  e_mem <= 1'b0;
+        l_busy <= 1'b0;  e_st <= E_IDLE;  e_mem <= 1'b0;  bg_busy <= 1'b0;
     end else case (e_st)
         E_IDLE: if (l_start) begin
             l_busy <= 1'b1;
             e_py <= 0;  e_d <= 1'b0;  e_x0 <= 0;  e_f0 <= 0;  e_ky0 <= 0;  e_i <= 0;
-            e_mem <= 1'b1;  e_maddr <= l_bias;        // PARAM read 0 for filter 0
+            e_mem <= 1'b1;  e_maddr <= l_bias;        // PARAM read 0: bias of filter 0
             e_st <= E_PARAM;
         end
-        // the address of read e_i is on port B now; its word arrives next cycle and is
-        // written into bias / mult by the block below
+        // once per layer: the address of read e_i is on port B now; its word arrives next cycle
+        // and is written into p_bias / p_mult by the block below
         E_PARAM: begin
-            if (e_i == 4'd8) begin
+            if ({1'b0, e_i} == n_param) begin
                 e_mem <= 1'b0;  e_st <= E_SETUP;
             end else begin
                 e_i <= e_i + 1'b1;
-                if (e_i != 4'd7) e_maddr <= param_addr(e_i + 1'b1);
+                if ({1'b0, e_i} + 7'd1 < {1'b0, l_f[5:0]})
+                    e_maddr <= l_bias + {24'b0, e_i + 6'd1, 2'b00};
+                else
+                    e_maddr <= l_mult + {24'b0, e_i + 6'd1 - l_f[5:0], 2'b00};
             end
         end
-        // descriptors for this piece: A = patches of pixels x0.. (kernel rows ky0..), B = weights
+        // descriptors for this piece: A = patches of pixels x0.. (kernel rows ky0..), B = weights;
+        // this group's 4 biases and scales are copied into the output stage (block below)
         E_SETUP: begin
             e_abase  <= l_in + (({24'b0, oy} + {30'b0, e_ky0}) * {24'b0, l_w} + {24'b0, e_x0}) * {24'b0, l_c};
             e_bbase  <= l_wt + {24'b0, k0} * {24'b0, l_f} + {24'b0, e_f0};
@@ -495,38 +511,28 @@ always @(posedge clk) begin
         E_WAIT: if (!busy && !g_busy && !g_done && !e_cmd) begin
             if (!e_last_piece) begin
                 e_ky0 <= e_ky0 + e_nr;  e_st <= E_SETUP;
-            end else if (q_ready) begin
-                e_i <= 0;  e_st <= E_STORE;
-            end
-        end
-        // the result words of the 1..4 pixels into the row buffer, then the next tile
-        E_STORE: begin
-            rb_we    <= 1'b1;
-            rb_widx  <= {e_d, e_x0[4:0] + {1'b0, e_i}, e_f0[3:2]};
-            rb_wdata <= q[e_i[1:0]];
-            if (e_i != {1'b0, lanes} - 4'd1)
-                e_i <= e_i + 1'b1;
-            else begin
-                e_ky0 <= 0;  e_i <= 0;
+            end else if (q_ready && !bg_busy) begin
+                // latch the results for the background store, then go straight on
+                qh[0] <= q[0];  qh[1] <= q[1];  qh[2] <= q[2];  qh[3] <= q[3];
+                bg_busy <= 1'b1;  bg_i <= 3'd0;  bg_n <= lanes;
+                bg_d <= e_d;  bg_x <= e_x0[4:0];  bg_g <= e_f0[3:2];
+                e_ky0 <= 0;
                 if (more_f) begin
-                    e_f0 <= e_f0 + 8'd4;
-                    e_mem <= 1'b1;  e_maddr <= l_bias + {22'b0, e_f0 + 8'd4, 2'b00};  e_st <= E_PARAM;
+                    e_f0 <= more_f_n;  e_st <= E_SETUP;
                 end else begin
                     e_f0 <= 0;
                     if (more_x || !e_d) begin
                         if (more_x) e_x0 <= e_x0 + 8'd4;
                         else begin e_x0 <= 0;  e_d <= 1'b1; end
-                        e_mem <= 1'b1;  e_maddr <= l_bias;  e_st <= E_PARAM;
+                        e_st <= E_SETUP;
                     end else begin                 // both rows done: pool them
                         e_x0 <= 0;  e_px <= 0;  e_fg <= 0;  e_st <= E_LAND;
                     end
                 end
             end
         end
-        // the last result word of the row pair is written into the row buffer in this cycle;
-        // pooling reads it from the next cycle on (with one output column and 4 filters the
-        // very first pooled word needs it)
-        E_LAND: e_st <= E_POOL;
+        // pooling starts once the background store has written the last result word
+        E_LAND: if (!bg_busy) e_st <= E_POOL;
         // one pooled word (4 filters of one output pixel) per cycle; the write is on port B
         // in the following cycle
         E_POOL: begin
@@ -547,25 +553,35 @@ always @(posedge clk) begin
         end
         // the last pooled write is on port B this cycle; then the next row pair, or done
         E_TURN: begin
+            e_mem <= 1'b0;
             if (e_finish) begin
-                e_mem <= 1'b0;  l_busy <= 1'b0;  e_st <= E_IDLE;
+                l_busy <= 1'b0;  e_st <= E_IDLE;
             end else begin
-                e_py <= e_py + 1'b1;  e_d <= 1'b0;  e_i <= 0;
-                e_maddr <= l_bias;  e_st <= E_PARAM;
+                e_py <= e_py + 1'b1;  e_d <= 1'b0;  e_st <= E_SETUP;
             end
         end
         default: e_st <= E_IDLE;
     endcase
 end
 
-// bias / mult: written by the CPU, or loaded by the layer engine (PARAM read r arrives while
-// e_i = r + 1)
-wire       e_bm_we  = (e_st == E_PARAM) && (e_i != 4'd0);
-wire [3:0] e_bm_r   = e_i - 4'd1;
+// p_bias / p_mult: PARAM read r arrives while e_i = r + 1 (reads 0..F-1 biases, F..2F-1 scales)
+wire       e_pm_we = (e_st == E_PARAM) && (e_i != 6'd0);
+wire [5:0] e_pm_r  = e_i - 6'd1;
+wire [5:0] e_pm_m  = e_pm_r - l_f[5:0];
 always @(posedge clk)
-    if (e_bm_we) begin
-        if (e_bm_r[2]) mult[e_bm_r[1:0]] <= mem_rdata[17:0];
-        else           bias[e_bm_r[1:0]] <= mem_rdata;
+    if (e_pm_we) begin
+        if (e_pm_r < l_f[5:0]) p_bias[e_pm_r[3:0]] <= mem_rdata;
+        else                   p_mult[e_pm_m[3:0]] <= mem_rdata[17:0];
+    end
+
+// bias / mult of the output stage: written by the CPU, or copied from p_bias / p_mult for the
+// filter group the engine is setting up
+always @(posedge clk)
+    if (e_st == E_SETUP) begin
+        for (n = 0; n < N; n = n + 1) begin
+            bias[n] <= p_bias[{e_f0[3:2], n[1:0]}];
+            mult[n] <= p_mult[{e_f0[3:2], n[1:0]}];
+        end
     end else if (wr_en && region == 2'd3) begin
         if (sub == 2'd2) bias[sidx] <= wr_data;
         if (sub == 2'd3) mult[sidx] <= wr_data[17:0];
