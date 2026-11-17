@@ -21,7 +21,9 @@ module basys3_top #(
     output        dp,
     output [ 3:0] an,
     input         RsRx,
-    output        RsTx
+    output        RsTx,
+    // 2.4" SPI TFT on Pmod JB
+    output        tft_cs, tft_rst, tft_dc, tft_mosi, tft_sck, tft_led
 );
 
 // Clock
@@ -83,7 +85,9 @@ soc #(.CLK_HZ(CLK_HZ), .BAUD(115_200)) soc_i (
     .PCW(), .Result(), .ALUResultW(), .WriteDataW(),
     .leds(leds), .hex(hex), .switches(sw), .buttons({btnD, btnR, btnL, btnU}),
     .uart_rx(RsRx), .uart_tx(RsTx),
-    .tohost(tohost), .tohost_valid(tohost_valid), .loading(loading)
+    .tohost(tohost), .tohost_valid(tohost_valid), .loading(loading),
+    .tft_cs(tft_cs), .tft_rst(tft_rst), .tft_dc(tft_dc), .tft_mosi(tft_mosi),
+    .tft_sck(tft_sck), .tft_led(tft_led)
 );
 
 // Status lights only take over LEDs 13-15 when there is something to report, so a

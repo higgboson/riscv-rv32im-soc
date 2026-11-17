@@ -4,7 +4,8 @@
 #   make PROG=hello sim        compile and run it on the RTL (Icarus Verilog)
 #   make PROG=hello install    copy its hex files into code/ so Quartus loads them
 #   make PROG=bench sim VFLAGS=-DNO_BPRED   run with branch prediction switched off
-#   make prebuilt              rebuild sw/prebuilt/ (hello, bench, demo, matmul, mnist)
+#   make PROG=nn_demo DEFS=-DSIM OUT=build/nn_demo_sim   C defines (here: no display delays)
+#   make prebuilt              rebuild sw/prebuilt/ (hello, bench, demo, matmul, mnist, nn_demo)
 #
 # On Windows the xPack toolchain is called riscv-none-elf-: use  make CROSS=riscv-none-elf- ...
 
@@ -17,11 +18,11 @@ OBJDUMP = $(CROSS)objdump
 # rv32im = base integers + multiply / divide, which is what the CPU supports.
 # No standard library: the CPU has no OS, console.c gives the few functions we need.
 CFLAGS  = -march=rv32im -mabi=ilp32 -O2 -ffreestanding -nostdlib -nostartfiles \
-          -fno-builtin-printf -Wall -Icommon -Iprograms/bench
+          -fno-builtin-printf -Wall -Icommon -Iprograms/bench $(DEFS)
 LDFLAGS = -T common/link.ld -Wl,--gc-sections -lgcc
 
 SRC   = common/crt0.S common/console.c $(wildcard programs/$(PROG)/*.c)
-OUT   = build/$(PROG)
+OUT  ?= build/$(PROG)
 RTL   = ../code
 
 all: $(OUT)/imem.hex
@@ -43,7 +44,7 @@ sim: $(OUT)/imem.hex
 
 # Prebuilt programs, kept in git so the board can be used without a RISC-V compiler
 # (sw/load.py and fpga/basys3/build.tcl read them from sw/prebuilt/)
-PREBUILT = hello bench demo matmul mnist
+PREBUILT = hello bench demo matmul mnist nn_demo
 prebuilt:
 	for p in $(PREBUILT); do \
 	    $(MAKE) -s PROG=$$p && mkdir -p prebuilt/$$p && cp build/$$p/*.hex prebuilt/$$p/ ; \

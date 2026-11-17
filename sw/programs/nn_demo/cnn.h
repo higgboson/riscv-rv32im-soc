@@ -1,0 +1,1 @@
+#include "../mnist/cnn.h"

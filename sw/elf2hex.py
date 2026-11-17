@@ -11,7 +11,7 @@ import sys
 import tempfile
 
 IMEM_BASE, IMEM_WORDS = 0x00000000, 4096
-DMEM_BASE, DMEM_WORDS = 0x00010000, 4096
+DMEM_BASE, DMEM_WORDS = 0x00010000, 8192
 
 
 def section_bytes(objcopy, elf, args):

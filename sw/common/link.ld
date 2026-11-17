@@ -3,7 +3,7 @@
  * The CPU has separate instruction and data memories (Harvard), so code and data are
  * placed in different regions and loaded from different hex files:
  *   IMEM 0x0000_0000  16 KB  code              -> imem.hex
- *   DMEM 0x0001_0000  16 KB  data, heap, stack -> dmem0..3.hex
+ *   DMEM 0x0001_0000  32 KB  data, heap, stack -> dmem0..3.hex
  *   I/O  0x1000_0000         console, tohost, LEDs (see code/mmio.v)
  */
 
@@ -13,7 +13,7 @@ ENTRY(_start)
 MEMORY
 {
     IMEM (rx) : ORIGIN = 0x00000000, LENGTH = 16K
-    DMEM (rw) : ORIGIN = 0x00010000, LENGTH = 16K
+    DMEM (rw) : ORIGIN = 0x00010000, LENGTH = 32K
 }
 
 SECTIONS

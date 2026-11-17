@@ -23,7 +23,9 @@ module soc #(
     output        uart_tx,
     output [31:0] tohost,
     output        tohost_valid,
-    output        loading               // the UART loader is receiving a program
+    output        loading,              // the UART loader is receiving a program
+    // 2.4" SPI TFT (code/io/tft_spi.v)
+    output        tft_cs, tft_rst, tft_dc, tft_mosi, tft_sck, tft_led
 );
 
 wire [31:0] Instr, PC;
@@ -36,12 +38,12 @@ wire [ 3:0] perf_events;
 // UART program loader. While it receives a program (or after a failed one) the CPU and
 // its I/O registers are held in reset. The UART itself only resets with the board.
 wire        ld_active, ld_hold, ld_imem_we, ld_dmem_we, ld_tx_we;
-wire [11:0] ld_waddr;
+wire [12:0] ld_waddr;
 wire [31:0] ld_wdata;
 wire [ 7:0] ld_tx_data, rx_byte;
 wire        rx_byte_valid;
 
-uart_loader #(.AW(12)) loader (
+uart_loader #(.AW(13)) loader (                  // 13 bits: 8K words of data memory
     .clk(clk), .reset(reset),
     .rx_valid(rx_byte_valid), .rx_data(rx_byte),
     .active(ld_active), .hold(ld_hold),
@@ -57,15 +59,19 @@ riscv_cpu rvcpu    (clk, core_reset, PC, Instr,
                     WriteData_rv32, ReadData, Result,
                     funct3, PCW, ALUResultW, WriteDataW, perf_events);
 
-instr_mem instrmem (clk, PC, Instr, ld_imem_we, ld_waddr, ld_wdata);
+instr_mem instrmem (clk, PC, Instr, ld_imem_we, ld_waddr[11:0], ld_wdata);
 
-// Top 4 address bits: 0x1 -> I/O, 0x2 -> matrix accelerator, anything else -> data memory
+// Top 4 address bits: 0x1 -> I/O, 0x2 -> matrix accelerator, 0x3 -> TFT display,
+// anything else -> data memory
 wire is_mmio  = (DataAdr[31:28] == 4'h1);
 wire is_accel = (DataAdr[31:28] == 4'h2);
+wire is_tft   = (DataAdr[31:28] == 4'h3);
+wire [31:0] tft_rdata;
 wire [31:0] accel_rdata, accel_mem_addr, accel_mem_data, accel_mem_wdata;
 wire [3:0]  accel_mem_we;
 
-data_mem  datamem  (clk, MemWrite & ~is_mmio & ~is_accel, Store, DataAdr, WriteData, dmem_rdata,
+// 32 KB of data memory (8K words, 0x0001_0000 .. 0x0001_7FFF)
+data_mem #(.WORDS(8192)) datamem (clk, MemWrite & ~is_mmio & ~is_accel & ~is_tft, Store, DataAdr, WriteData, dmem_rdata,
                     accel_mem_addr, accel_mem_data, accel_mem_we, accel_mem_wdata);
 
 matmul_accel accel (
@@ -87,13 +93,20 @@ mmio #(.CLK_HZ(CLK_HZ), .BAUD(BAUD)) io (
     .tohost(tohost), .tohost_valid(tohost_valid)
 );
 
-assign ReadData  = is_mmio ? mmio_rdata : is_accel ? accel_rdata : dmem_rdata;
+tft_spi tft (
+    .clk(clk), .reset(core_reset),
+    .wr_en(MemWrite & is_tft), .addr(DataAdr), .wr_data(WriteData), .rd_data(tft_rdata),
+    .tft_cs(tft_cs), .tft_rst(tft_rst), .tft_dc(tft_dc), .tft_mosi(tft_mosi),
+    .tft_sck(tft_sck), .tft_led(tft_led)
+);
+
+assign ReadData  = is_mmio ? mmio_rdata : is_accel ? accel_rdata : is_tft ? tft_rdata : dmem_rdata;
 
 // While the CPU is in reset, data memory can be written from outside: by a testbench
 // (Ext_*, e-Yantra) or by the loader. CPU stores are blocked then, so a store that was
 // still in the pipeline when the loader started cannot land on the loader's address.
 wire        ext_wr   = (Ext_MemWrite && reset) | ld_dmem_we;
-wire [31:0] ext_addr = ld_active ? {18'b0, ld_waddr, 2'b00} : Ext_DataAdr;
+wire [31:0] ext_addr = ld_active ? {17'b0, ld_waddr, 2'b00} : Ext_DataAdr;
 wire [31:0] ext_data = ld_active ? ld_wdata : Ext_WriteData;
 
 assign Store     = ext_wr ? 3'b010 : funct3;

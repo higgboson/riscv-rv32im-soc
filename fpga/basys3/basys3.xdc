@@ -77,3 +77,13 @@ set_property CFGBVS VCCO [current_design]
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
 set_property BITSTREAM.CONFIG.CONFIGRATE 33 [current_design]
 set_property CONFIG_MODE SPIx4 [current_design]
+
+# 2.4" SPI TFT on Pmod JB (wiring: fpga/basys3/README or docs): CS JB1, RESET JB2, DC JB3,
+# SDI JB4, SCK JB7, LED JB8. GND = pin 5, 3.3 V = pin 6. SDO and the touch pins stay unconnected.
+set_property -dict { PACKAGE_PIN A14 IOSTANDARD LVCMOS33 } [get_ports tft_cs]
+set_property -dict { PACKAGE_PIN A16 IOSTANDARD LVCMOS33 } [get_ports tft_rst]
+set_property -dict { PACKAGE_PIN B15 IOSTANDARD LVCMOS33 } [get_ports tft_dc]
+set_property -dict { PACKAGE_PIN B16 IOSTANDARD LVCMOS33 } [get_ports tft_mosi]
+set_property -dict { PACKAGE_PIN A15 IOSTANDARD LVCMOS33 } [get_ports tft_sck]
+set_property -dict { PACKAGE_PIN A17 IOSTANDARD LVCMOS33 } [get_ports tft_led]
+set_false_path -to [get_ports {tft_cs tft_rst tft_dc tft_mosi tft_sck tft_led}]
