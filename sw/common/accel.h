@@ -34,7 +34,8 @@
 #define ACCEL_L      ((volatile uint32_t *)(ACCEL_BASE + 0x030))   // layer engine descriptor
 #define ACCEL_BUSY   1u
 #define ACCEL_QREADY 2u
-#define ACCEL_MAXK   64
+#define ACCEL_MAXK   64     // steps the CPU can write through the A / B windows
+#define ACCEL_ENGINE_MAXK 128  // steps the gather engine can fill (buffer depth)
 
 // address of a variable as the gather engine sees it
 #define ACCEL_ADDR(p) ((uint32_t)(uintptr_t)(p))
@@ -54,12 +55,12 @@ static inline void accel_gather_desc(volatile uint32_t *d, const void *base,
 // A whole 3x3 convolution layer with bias, scale, ReLU and 2x2 max pooling on the layer
 // engine. in: (2*PH+2 or more) x W x C, out: PH x PW x F, both INT8, out 4-byte aligned;
 // wt: K x F (K = 9*C, order ky, kx, channel). Limits: F a multiple of 4 up to 16,
-// 2*PW <= 32, C <= 21.
+// 2*PW <= 32, C <= 42 (one kernel row, 3*C steps, must fit the 128-step buffers).
 static inline void accel_conv_layer(const int8_t *in, int W, int C, int F, int PH, int PW,
                                     const int8_t *wt, const int32_t *bias, const int32_t *mult,
                                     int8_t *out)
 {
-    int rows_per_run = ACCEL_MAXK / (3 * C);
+    int rows_per_run = ACCEL_ENGINE_MAXK / (3 * C);
     if (rows_per_run > 3) rows_per_run = 3;
     ACCEL_L[0] = ACCEL_ADDR(in);
     ACCEL_L[1] = ACCEL_ADDR(out);

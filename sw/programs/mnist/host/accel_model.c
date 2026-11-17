@@ -1,5 +1,5 @@
 #include "accel.h"
-uint32_t accel_ctrl, ACCEL_A[64], ACCEL_B[64], ACCEL_Q[4], ACCEL_MULT[4];
+uint32_t accel_ctrl, ACCEL_A[128], ACCEL_B[128], ACCEL_Q[4], ACCEL_MULT[4];
 uint32_t ACCEL_GA[4], ACCEL_GB[4], ACCEL_L[7];
 char     accel_anchor;
 // read through a volatile so the compiler cannot assume where the addresses point
@@ -90,7 +90,7 @@ static void tile_run(uint32_t ctrl)
     if (accel_ctrl & ACCEL_GATHER_A) gather(ACCEL_GA, ACCEL_A);
     if (accel_ctrl & ACCEL_GATHER_B) gather(ACCEL_GB, ACCEL_B);
     if (!(accel_ctrl & ACCEL_START)) { accel_ctrl = 0; return; }
-    int k = accel_ctrl & 0x7f;
+    int k = accel_ctrl & 0xff;
     if (accel_ctrl & ACCEL_CLEAR)
         for (int i = 0; i < 16; i++) ACCEL_C[i] = 0;
     for (int s = 0; s < k; s++)

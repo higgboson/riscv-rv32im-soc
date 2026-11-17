@@ -1,6 +1,6 @@
 // tb_accel.v - unit test for the matrix-multiply accelerator, through its registers
 //
-// Each test picks a random K (1..64) and random INT8 matrices A (4xK) and B (Kx4), with
+// Each test picks a random K (1..64 through the CPU windows) and random INT8 matrices A (4xK) and B (Kx4), with
 // extra weight on the edge values -128, 127, -1, 0. It writes them to the accelerator,
 // starts it, waits for busy = 0 and compares all 16 results with a sum computed here.
 // Some tests skip "clear" and must add onto the previous C (accumulate mode), and some
@@ -10,7 +10,8 @@
 // Half of the tests load A and B with the gather engine instead, from a memory model with
 // random contents: random loop counts, strides, lane counts and alignments (so both the
 // byte-by-byte and the whole-word path are used), as one command (gather A, gather B, run)
-// or as separate commands. The expected A and B are worked out here from the descriptors.
+// or as separate commands, with K up to the full buffer depth of 128 steps (test 3 is
+// exactly 128). The expected A and B are worked out here from the descriptors.
 //
 // +TESTS=<n> number of tests (default 500), +SEED=<s> random seed
 
@@ -36,8 +37,8 @@ always #5 clk = ~clk;
 
 integer seed, ntests, test, k, kk, i, j, errors = 0, cycles;
 integer expect_c [0:3][0:3];
-reg signed [7:0] a [0:3][0:63];
-reg signed [7:0] b [0:63][0:3];
+reg signed [7:0] a [0:3][0:127];
+reg signed [7:0] b [0:127][0:3];
 reg clear_first;
 reg signed [31:0] bias [0:3];
 reg        [17:0] mult [0:3];
@@ -112,11 +113,12 @@ initial begin
         if (test < 3) k = (test == 0) ? 1 : (test == 1) ? 64 : 4;    // corners first
         clear_first = (test == 0) || (($random(seed) & 3) != 0);
 
-        use_dma = (test >= 3) && ($random(seed) & 1);
+        use_dma = (test == 3) || ((test > 3) && ($random(seed) & 1));
         if (use_dma) begin
-            // loop counts with n0 * n1 * n2 <= 64; descriptors A (0) and B (1) share them
-            n0 = 1 + ($random(seed) & 15);  n1 = 1 + ($random(seed) & 3);  n2 = 1 + ($random(seed) & 3);
-            while (n0 * n1 * n2 > 64) n0 = n0 - 1;
+            // loop counts with n0 * n1 * n2 <= 128; descriptors A (0) and B (1) share them
+            n0 = 1 + ($random(seed) & 15);  n1 = 1 + ($random(seed) & 7);  n2 = 1 + ($random(seed) & 3);
+            while (n0 * n1 * n2 > 128) n0 = n0 - 1;
+            if (test == 3) begin n0 = 16; n1 = 4; n2 = 2; end     // the full 128 steps
             k = n0 * n1 * n2;
             for (i = 0; i < 2; i = i + 1) begin
                 lanes[i] = 1 + ($random(seed) & 3);

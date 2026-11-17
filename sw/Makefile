@@ -26,7 +26,10 @@ RTL   = ../code
 
 all: $(OUT)/imem.hex
 
-$(OUT)/$(PROG).elf: $(SRC) common/link.ld common/console.h
+# rebuild when any header changes (accel.h holds the accelerator drivers)
+HDR   = $(wildcard common/*.h programs/$(PROG)/*.h)
+
+$(OUT)/$(PROG).elf: $(SRC) $(HDR) common/link.ld
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(SRC) $(LDFLAGS) -o $@
 	$(OBJDUMP) -d $@ > $(OUT)/$(PROG).dis

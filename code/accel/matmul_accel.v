@@ -10,7 +10,7 @@
 // cycle. A 4x4 tile with K steps takes K + 6 cycles, doing 16 multiply-adds per cycle.
 //
 // Registers (base 0x2000_0000, word offsets):
-//   0x000  CTRL   write: bits 6:0 = K (1..64), bit 8 = start, bit 9 = clear C first,
+//   0x000  CTRL   write: bits 7:0 = K (1..128), bit 8 = start, bit 9 = clear C first,
 //                        bit 10 = gather A first, bit 11 = gather B first (see below)
 //                 read : bit 0 = busy (gathering or running), bit 1 = Q ready
 //   0x010  GA_BASE   gather descriptor for A: start address in data memory
@@ -23,10 +23,10 @@
 //   0x038  L_WT    weights, K x F with K = 9*C in the order (ky, kx, channel)
 //   0x03C  L_BIAS  F int32 biases          0x040  L_MULT  F int32 scales
 //   0x044  L_SHAPE bits 7:0 width, 15:8 C, 23:16 F (multiple of 4, at most 16), 31:24 PH
-//   0x048  L_SHAPE2 bits 7:0 PW (2*PW at most 32), 15:8 kernel rows per run (rows*3*C <= 64)
+//   0x048  L_SHAPE2 bits 7:0 PW (2*PW at most 32), 15:8 kernel rows per run (rows*3*C <= 128)
 //   CTRL bit 12 = run a whole layer: 3x3 convolution, bias, scale, ReLU and 2x2 max pooling
-//   0x100  A_COL[k]  (k = 0..63) one word = A[0..3][k], byte i = row i
-//   0x200  B_ROW[k]  (k = 0..63) one word = B[k][0..3], byte j = column j
+//   0x100  A_COL[k]  (k = 0..63, CPU window) one word = A[0..3][k], byte i = row i
+//   0x200  B_ROW[k]  (k = 0..63, CPU window) one word = B[k][0..3], byte j = column j
 //   0x300  C[i][j]   (16 words, row by row) read only
 //   0x340  Q[i]      (4 words) read only: row i of C converted back to INT8 by the output stage,
 //                    byte j = clamp((C[i][j] + BIAS[j]) * MULT[j] + 2^23 >> 24, 0, 127)
@@ -34,6 +34,8 @@
 //   0x3C0  MULT[j]   (4 words) read / write, 18-bit unsigned scale of column j
 // Without "clear", a run adds onto the old C, so long sums can be
 // split into pieces; Q is only meaningful after the last piece.
+// The buffers hold 128 steps. The CPU can write the first 64 through its windows; the gather
+// engine fills all 128, so a 3x3x8 patch (72 steps) fits in one run.
 //
 // The output stage does what a neural-network layer needs after the multiply-adds: add the
 // bias, scale back to 8 bits, ReLU. It runs in the 6 cycles after busy drops (one row per
@@ -51,12 +53,12 @@
 //
 // The layer engine runs a whole convolution layer by itself: for every pair of conv output
 // rows, every 4 pixels and every 4 filters it loads that group's bias and scale from memory,
-// gathers the patches and weights, runs the array (in pieces when the patch has more than 64
+// gathers the patches and weights, runs the array (in pieces when the patch has more than 128
 // steps) and keeps the INT8 results of the two rows in a small buffer. Then it writes the
 // 2x2 max-pooled row back to data memory through the same port. The CPU only describes the
 // layer and waits.
 
-module matmul_accel #(parameter MAXK = 64) (
+module matmul_accel #(parameter MAXK = 128) (
     input             clk, reset,
     input             wr_en,
     input      [31:0] addr, wr_data,
@@ -71,7 +73,7 @@ localparam N  = 4;
 localparam KW = $clog2(MAXK);
 
 wire [1:0]    region = addr[9:8];          // 0 = control, 1 = A, 2 = B, 3 = C
-wire [KW-1:0] widx   = addr[KW+1:2];
+wire [KW-1:0] widx   = {{(KW-6){1'b0}}, addr[7:2]};  // CPU window: steps 0..63
 
 // Operand buffers (small, become LUT RAM on the FPGA)
 reg [31:0] a_buf [0:MAXK-1];
@@ -98,7 +100,7 @@ reg         g_busy;                        // the gather engine is working
 reg         g_done;
 reg  [KW:0] k_len;
 reg  [7:0]  t;                             // step counter while busy
-wire [7:0]  k8   = {{(7-KW){1'b0}}, k_len};  // K widened to the counter's width
+wire [7:0]  k8   = k_len;                  // K (1..128) at the step counter's width
 wire [7:0]  last = k8 + 8'd5;              // last step, see below
 
 reg         l_busy;                        // the layer engine is working
@@ -394,9 +396,9 @@ always @(posedge clk)
             default: ;
         endcase
 
-localparam E_IDLE = 3'd0, E_PARAM = 3'd1, E_SETUP = 3'd2, E_CMD = 3'd3,
-           E_WAIT = 3'd4, E_STORE = 3'd5, E_POOL = 3'd6, E_TURN = 3'd7;
-reg  [2:0]  e_st;
+localparam E_IDLE = 4'd0, E_PARAM = 4'd1, E_SETUP = 4'd2, E_CMD = 4'd3,
+           E_WAIT = 4'd4, E_STORE = 4'd5, E_POOL = 4'd6, E_TURN = 4'd7, E_LAND = 4'd8;
+reg  [3:0]  e_st;
 reg  [7:0]  e_py, e_x0, e_f0, e_px, e_fg;
 reg         e_d, e_finish;
 reg  [1:0]  e_ky0, e_nr;
@@ -487,7 +489,7 @@ always @(posedge clk) begin
         end
         E_CMD: begin                               // gather B, gather A if needed, run
             e_desc <= 1'b1;  e_cmd <= 1'b1;
-            e_bits <= {1'b1, e_need_a, e_ky0 == 2'd0, 1'b1, 1'b0, e_bn0[6:0]};
+            e_bits <= {1'b1, e_need_a, e_ky0 == 2'd0, 1'b1, e_bn0};
             e_st   <= E_WAIT;
         end
         E_WAIT: if (!busy && !g_busy && !g_done && !e_cmd) begin
@@ -516,11 +518,15 @@ always @(posedge clk) begin
                         else begin e_x0 <= 0;  e_d <= 1'b1; end
                         e_mem <= 1'b1;  e_maddr <= l_bias;  e_st <= E_PARAM;
                     end else begin                 // both rows done: pool them
-                        e_x0 <= 0;  e_px <= 0;  e_fg <= 0;  e_st <= E_POOL;
+                        e_x0 <= 0;  e_px <= 0;  e_fg <= 0;  e_st <= E_LAND;
                     end
                 end
             end
         end
+        // the last result word of the row pair is written into the row buffer in this cycle;
+        // pooling reads it from the next cycle on (with one output column and 4 filters the
+        // very first pooled word needs it)
+        E_LAND: e_st <= E_POOL;
         // one pooled word (4 filters of one output pixel) per cycle; the write is on port B
         // in the following cycle
         E_POOL: begin

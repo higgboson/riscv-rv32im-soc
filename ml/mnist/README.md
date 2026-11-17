@@ -35,7 +35,7 @@ python3 quantize.py
 python3 gen_c.py ../../sw/programs/mnist
 ```
 
-Check all three C versions (CPU, array fed by the CPU, array with the gather engine) against
+Check all four C versions (CPU, array fed by the CPU, with the gather engine, with the layer engine) against
 the golden model on all 10,000 images (from this folder):
 
 ```

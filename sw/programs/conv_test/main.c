@@ -1,7 +1,10 @@
 // conv_test - random layers on the accelerator's layer engine, checked byte for byte against
-// the plain C layer (cnn_conv_pool_cpu). Random shapes cover the engine's corners: 1 to 13
-// channels and the C = 21 limit (several pieces per patch), 4 to 16 filters, a last group of
-// fewer than 4 pixels, odd input sizes (last row / column unused) and the widest row (2*PW = 32).
+// the plain C layer (cnn_conv_pool_cpu). Random shapes cover the engine's corners: 1 to 24
+// channels (up to 14 the whole patch is one run and is fetched once for all filter groups,
+// above that it runs in pieces), the longest single run (C = 14, 126 steps), the C = 42 limit
+// (three pieces of 126 steps), 4 to 16 filters, a last group of fewer than 4 pixels, odd input
+// sizes (last row / column unused), the widest row (2*PW = 32) and one output column with
+// one filter group.
 // Random data, weights, biases and scales.
 
 #include "console.h"
@@ -30,8 +33,13 @@ int main(void)
     for (int t = 0; t < N_TESTS; t++) {
         int C, F = 4 * range(1, 4), PH, PW;
         if (t == 0)      { C = 1;  PW = 16; PH = 1; }           // widest row: 32 conv columns
-        else if (t == 1) { C = 21; PW = 2;  PH = 1; }           // 3 pieces of 63 steps
-        else             { C = range(1, 13); PW = range(1, 8); PH = range(1, 2); }
+        else if (t == 1) { C = 21; PW = 2;  PH = 1; }           // pieces of 126 + 63 steps
+        else if (t == 2) { C = 42; PW = 2;  PH = 1; }           // 3 pieces of 126 steps
+        else if (t == 3) { C = 14; PW = 3;  PH = 2; F = 16; }   // one 126-step run, 4 groups
+        else if (t == 4) { C = 3;  PW = 1;  PH = 2; F = 4; }    // first pooled word needs the
+                                                                // last result word (a bug once)
+        else             { C = range(1, 24); PW = range(1, 8); PH = range(1, 2); }
+        while (9 * C * F > (int)sizeof wt) F -= 4;               // keep the weights in memory
         int W = 2 * PW + 2 + range(0, 1), H = 2 * PH + 2 + range(0, 1);   // sometimes odd
         if (H * W * C > (int)sizeof in) { W = 2 * PW + 2; H = 2 * PH + 2; }
 
