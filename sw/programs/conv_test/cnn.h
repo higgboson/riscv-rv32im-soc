@@ -1,1 +1,1 @@
-../mnist/cnn.h
+#include "../mnist/cnn.h"

@@ -1,1 +1,1 @@
-../mnist/weights.h
+#include "../mnist/weights.h"
