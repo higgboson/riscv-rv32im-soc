@@ -12,7 +12,7 @@ UART console and a UART program loader, so new programs load in under a second w
 rebuilding the bitstream.
 
 Runs a **handwritten-digit recognition neural network** (INT8 CNN, 98.74 % on MNIST) on its own
-**systolic-array accelerator with a hardware layer engine**: **26.3x faster** than the CPU
+**systolic-array accelerator with a hardware layer engine**: **36.4x faster** than the CPU
 alone, measured on the board, with every output bit-identical to a Python golden model.
 
 Hardened into a **SkyWater 130 nm layout** (RTL to GDSII with LibreLane), and verified with two **UVM** environments on Cadence Xcelium (constrained-random programs checked
@@ -24,7 +24,7 @@ IMC), with planted bugs to prove the testbenches catch real failures.
 <table>
 <tr>
 <td width="50%"><img src="docs/images/nn/basys3_mnist_uart.png" alt="MNIST on the board"><br><b>A neural network on my CPU, measured on the Basys 3:</b> a small INT8 CNN recognises MNIST digits four ways: CPU only, accelerator fed by the CPU, with its gather engine, and with its layer engine. The hardware cycle counter times every layer; the board numbers are identical to RTL simulation and every score matches the Python golden model. <a href="#neural-network-on-the-soc-mnist">Details</a></td>
-<td width="50%"><img src="docs/images/nn/mnist_speedup.png" alt="speedup"><br><b>26.3x faster inference:</b> 44.1 ms per image on the CPU, 1.68 ms with the accelerator (about 600 images/s at 50 MHz). The first accelerator version was only 4.3x because the CPU spent its time moving data; each step after that came from measuring where the cycles went (gather engine 11.4x, layer engine 26.3x).</td>
+<td width="50%"><img src="docs/images/nn/mnist_speedup.png" alt="speedup"><br><b>36.4x faster inference:</b> 44.1 ms per image on the CPU, 1.21 ms with the accelerator (about 820 images/s at 50 MHz). The first accelerator version was only 4.3x because the CPU spent its time moving data; each step after that came from measuring where the cycles went (gather engine 11.4x, layer engine 26.3x, deeper operand buffers 36.4x).</td>
 </tr>
 <tr>
 <td colspan="2"><img src="docs/images/nn/accelerator_dataflow.png" alt="accelerator data flow"><br><b>What I built for it:</b> a layer engine that runs a whole convolution layer from one command: it drives a gather engine that reads image patches and weights straight from data memory through the block RAM's second port (convolution turned into matrix multiplication, "im2col", in hardware), an output stage that adds the bias, rescales to 8 bits and applies ReLU, and a 2x2 max pool that writes the next layer's input back to memory. The CPU sends one command per layer and waits.</td>
@@ -64,7 +64,7 @@ IMC), with planted bugs to prove the testbenches catch real failures.
 | FPGA | Basys 3 (Artix-7 XC7A35T): MMCM clocking, UART console, 7-segment display, LEDs, switches, buttons |
 | Program loader | hardware UART loader with checksum: `python sw/load.py COM5 bench` |
 | Accelerator | 4x4 INT8 systolic array (16 MACs/cycle) with a **layer engine** (one command per conv layer, 2x2 max pool in hardware), a **gather engine** (reads its own operands from data memory: im2col in hardware) and an **output stage** (bias, rescale, ReLU in hardware). 10.5x faster 32x32 matmul |
-| Neural network | INT8 CNN for MNIST (98.74 %), trained in NumPy, bit-exact C on the SoC: **26.3x** faster than the CPU on the board ([details](#neural-network-on-the-soc-mnist)) |
+| Neural network | INT8 CNN for MNIST (98.74 %), trained in NumPy, bit-exact C on the SoC: **36.4x** faster than the CPU on the board ([details](#neural-network-on-the-soc-mnist)) |
 | ASIC | Hardened on SkyWater 130 nm with LibreLane: 0.52 mm², DRC/LVS clean, timing closed at 20 MHz in all corners ([details](asic/riscv_cpu/README.md)) |
 | Verification | UVM on Xcelium + IMC: 48/48 riscv-tests in UVM, 17/17 regression tests pass, 100% functional coverage, SVA, bug injection |
 
@@ -158,11 +158,11 @@ hardware counter; identical to RTL simulation):
 
 | Layer | CPU only | Array fed by the CPU | + gather engine | + layer engine | Speedup |
 |---|---|---|---|---|---|
-| conv1 | 1,110,977 | 239,670 | 104,079 | **22,995** | 48.3x |
-| conv2 | 1,061,259 | 251,422 | 80,333 | **51,545** | 20.6x |
+| conv1 | 1,110,977 | 239,670 | 104,079 | **23,007** | 48.3x |
+| conv2 | 1,061,259 | 251,422 | 80,333 | **28,301** | 37.5x |
 | fully connected | 28,136 | 11,695 | 4,633 | **4,626** | 6.1x |
-| **Total** | **2,205,089** | 507,502 (4.3x) | 193,762 (11.4x) | **83,881 (26.3x)** | |
-| Per image at 50 MHz | 44.1 ms | 10.2 ms | 3.9 ms | **1.68 ms (about 600 images/s)** | |
+| **Total** | **2,205,089** | 507,502 (4.3x) | 193,762 (11.4x) | **60,649 (36.4x)** | |
+| Per image at 50 MHz | 44.1 ms | 10.2 ms | 3.9 ms | **1.21 ms (about 820 images/s)** | |
 
 **How the speedup was found, step by step:**
 
@@ -182,9 +182,16 @@ hardware counter; identical to RTL simulation):
    the gathers, keeps two output rows in a small buffer, max-pools them and writes the pooled
    INT8 values straight back to data memory, which is the next layer's input.
 
-Where the remaining time goes (layer engine): about 62 % fetching operands, 21 % computing in the
-array, 17 % bookkeeping. conv2's 3x3x8 patch (72 steps) does not fit the 64-step operand
-buffers, so each patch is fetched once per group of 4 filters; bigger buffers are the next step.
+5. **128-step operand buffers (36.4x):** profiling the layer engine showed 62 % of its time
+   went on fetching operands. conv2's 3x3x8 patch is 72 steps, more than the 64-step buffers
+   held, so it ran in two pieces and every patch was fetched again for each group of 4 filters.
+   With 128-step buffers the whole patch runs in one piece and is fetched once for all filter
+   groups: conv2 went from 51,545 to 28,301 cycles.
+
+Where the remaining time goes (while the layer engine works): conv1 37 % fetching, 24 %
+computing, 39 % bookkeeping (mostly reloading bias and scale for every tile); conv2 57 %
+fetching, 33 % computing, 10 % bookkeeping. Next: bias and scale for all filters kept on chip,
+then double buffering (fetch the next tile while the array computes).
 
 **Verification:**
 
@@ -194,8 +201,13 @@ buffers, so each patch is fetched once per group of 4 filters; bigger buffers ar
   engine are all caught; one was missed at first, which led to a new test case.
 - **Layer engine:** `sw/programs/conv_test` runs 24 convolution layers with random shapes
   (1 to 21 channels, 4 to 16 filters, rows up to 32 pixels, odd sizes, partial tiles) and random
-  data through the engine and checks every output byte against plain C. All 24 pass; a planted
-  bug in the pooling compare fails 23 of them, a scale off by one fails 3.
+  data through the engine and checks every output byte against plain C, plus fixed cases: one
+  126-step run (C = 14), three pieces of 126 steps (C = 42) and a single output column. All 24
+  pass; a planted bug in the pooling compare fails 23 of them, a scale off by one fails 3. Widening
+  this test found a real bug: with one output column and 4 filters, pooling read the last result
+  one cycle before it was written (fixed with a wait state; MNIST never used that shape).
+- **Buffers:** the accelerator unit test gathers up to the full 128 steps; dropping the top bit of
+  the buffer index makes it fail 2,880 checks.
 - **Software:** all four C versions match the golden model on all 10,000 test images (on the
   PC, with a software model of the accelerator) and on the RTL and the board.
 - The full regression (riscv-tests, random programs, board tests, e-Yantra) still passes.
@@ -372,11 +384,12 @@ Done:
 - [x] Accelerator output stage (bias, rescale, ReLU) and gather engine (im2col in hardware):
       11.4x faster CNN inference, measured on the board
 - [x] Layer engine (one command per conv layer, max pool in hardware): 26.3x, measured on the board
+- [x] 128-step operand buffers (each conv2 patch fetched once): 36.4x, measured on the board
 
 Next, in order:
 
-- [ ] **Faster accelerator:** 128-step operand buffers (fetch each conv2 patch once), double
-      buffering (fetch the next tile while the array runs), then an 8x8 array on DSP slices
+- [ ] **Faster accelerator:** bias and scale of all filters on chip, double buffering (fetch the
+      next tile while the array runs), then an 8x8 array on DSP slices
 - [ ] **TFT display (2.4" SPI, tested on the board):** SPI controller on the memory map, C driver
 - [ ] **Live demo:** draw a digit with a USB mouse (or touch, once a touch controller is fitted),
       the board recognises it and shows CPU vs accelerator time on the display
