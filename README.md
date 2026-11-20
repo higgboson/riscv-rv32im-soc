@@ -292,6 +292,17 @@ python sw\demo_tool.py COM6                 (loads nn_demo, opens the drawing wi
 |---|---|---|---|---|---|---|---|---|
 | Pmod JB | pin 6 (3.3 V) | pin 5 | JB1 | JB2 | JB3 | JB4 | JB7 | JB8 |
 
+### More programs on the TFT
+
+Any C program loads over the UART without rebuilding the FPGA (`python sw\load.py COM6 <name>`,
+from `sw/prebuilt` or after `make PROG=<name>`). Keys typed in the `load.py` window are passed
+to the program (arrow keys arrive as w / a / s / d).
+
+| Program | What it does |
+|---|---|
+| `tetris` | Tetris: 10x20 well, 7-bag randomiser, ghost piece, levels and scoring; played with the board buttons (L / R move, U rotates, D drops faster), the laptop keyboard (arrows, space drops, p pauses) or the board's USB mouse (slide to move, left click rotates, right click drops). Score on the 7-segment display. |
+| `sort` | An animated bottom-up merge sort of 120 bars on the TFT, then a benchmark: 2,000 random numbers by merge sort (n log n) and insertion sort (n^2), timed with the cycle counter, results checked identical. |
+
 ## Verification
 
 Independent checks, all run on every change:

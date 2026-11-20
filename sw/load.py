@@ -109,12 +109,28 @@ def main():
         else:
             sys.exit('no answer from the board: check the port, the bitstream, and press btnC')
 
+        # keys typed in this window go to the program (Windows console): letters as they are,
+        # arrow keys as w / a / s / d (Tetris uses them; programs that read nothing ignore them)
+        try:
+            import msvcrt
+        except ImportError:
+            msvcrt = None
+        arrows = {'H': b'w', 'K': b'a', 'P': b's', 'M': b'd'}
+        port.timeout = 0.01                                     # react to keys quickly
         try:
             while True:
                 data = port.read(256)
                 if data:
                     sys.stdout.write(data.decode('ascii', errors='replace').replace('\r', ''))
                     sys.stdout.flush()
+                while msvcrt and msvcrt.kbhit():
+                    ch = msvcrt.getwch()
+                    if ch in ('\x00', '\xe0'):                    # arrow / function key: 2 codes
+                        key = arrows.get(msvcrt.getwch())
+                        if key:
+                            port.write(key)
+                    elif ch.isascii() and ch.isprintable():
+                        port.write(ch.encode('ascii'))
         except KeyboardInterrupt:
             print()
 

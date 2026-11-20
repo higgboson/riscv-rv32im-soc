@@ -5,6 +5,8 @@
 //
 // +SW=<hex>       board switches (default 0: digit mode)
 // +MOUSE          a PS/2 mouse: answers reset / enable like a real one, then draws a 7
+// +KEYS=<text>    type these characters over the UART, one every +KEYGAP cycles (default
+//                 300,000), starting at +KEYSTART (default 8,000,000); '_' types a space
 // +DIGIT=<file>   after the program starts, send 'D', wait for ACK, send 784 bytes (hex file)
 // +SNAP=<n>       write a snapshot every n cycles (default 4,000,000)
 // +MAXCYC=<n>     stop after n cycles (default 20,000,000)
@@ -180,6 +182,8 @@ always @(negedge uart_tx) begin
 end
 
 reg [7:0] digit [0:783];
+reg [8*64-1:0] keys;
+integer key_gap, key_start, kn, kl;
 reg [8*256-1:0] digit_file;
 integer snap_every, max_cycles, cycles = 0;
 
@@ -196,6 +200,21 @@ always @(posedge clk) begin
     cycles = cycles + 1;
     if (cycles % snap_every == 0) snapshot;
     if (cycles == max_cycles) begin snapshot; $finish; end
+end
+
+initial begin
+    if ($value$plusargs("KEYS=%s", keys)) begin
+        if (!$value$plusargs("KEYGAP=%d", key_gap)) key_gap = 300000;
+        if (!$value$plusargs("KEYSTART=%d", key_start)) key_start = 8000000;
+        kl = 0;
+        for (kn = 0; kn < 64; kn = kn + 1) if (keys[8*kn +: 8] != 0) kl = kn + 1;
+        repeat (key_start) @(posedge clk);
+        for (kn = kl - 1; kn >= 0; kn = kn - 1) begin
+            send_byte(keys[8*kn +: 8] == "_" ? " " : keys[8*kn +: 8]);
+            repeat (key_gap) @(posedge clk);
+        end
+        $display("[%0t] all keys typed", $time);
+    end
 end
 
 initial begin

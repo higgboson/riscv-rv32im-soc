@@ -5,7 +5,7 @@
 #   make PROG=hello install    copy its hex files into code/ so Quartus loads them
 #   make PROG=bench sim VFLAGS=-DNO_BPRED   run with branch prediction switched off
 #   make PROG=nn_demo DEFS=-DSIM OUT=build/nn_demo_sim   C defines (here: no display delays)
-#   make prebuilt              rebuild sw/prebuilt/ (hello, bench, demo, matmul, mnist, nn_demo)
+#   make prebuilt              rebuild sw/prebuilt/ (hello, bench, demo, matmul, mnist, nn_demo, tetris, sort)
 #
 # On Windows the xPack toolchain is called riscv-none-elf-: use  make CROSS=riscv-none-elf- ...
 
@@ -44,7 +44,7 @@ sim: $(OUT)/imem.hex
 
 # Prebuilt programs, kept in git so the board can be used without a RISC-V compiler
 # (sw/load.py and fpga/basys3/build.tcl read them from sw/prebuilt/)
-PREBUILT = hello bench demo matmul mnist nn_demo
+PREBUILT = hello bench demo matmul mnist nn_demo tetris sort
 prebuilt:
 	for p in $(PREBUILT); do \
 	    $(MAKE) -s PROG=$$p && mkdir -p prebuilt/$$p && cp build/$$p/*.hex prebuilt/$$p/ ; \
