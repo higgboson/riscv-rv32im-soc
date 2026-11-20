@@ -475,6 +475,14 @@ about moving data:
 - [ ] **UVM for the gather and layer engines:** the UVM environment drives the accelerator the
       original way, so its code coverage is 53 %; sequences for the engines would close that gap
 
+- [ ] **A small operating system of my own:** first the privileged hardware the core lacks
+      (CSRs, `ecall` / `mret`, exceptions, a machine timer interrupt, with precise traps in the
+      5-stage pipeline, checked by the `rv32mi` riscv-tests); then a PS/2 keyboard and more
+      memory; then a kernel with system calls, a timer-driven round-robin scheduler and context
+      switching, and a shell on the TFT that runs the demos as processes side by side. (Linux is
+      out of reach: it needs an MMU and megabytes of RAM; the Basys 3 has about 225 KB of block
+      RAM and no external memory.)
+
 Other plans for the SoC:
 
 - [ ] **Interrupts and CSRs:** machine mode, timer interrupt, traps (ecall, illegal instruction),
