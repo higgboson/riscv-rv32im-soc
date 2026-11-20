@@ -100,6 +100,7 @@ See [`assets/architecture.pdf`](assets/architecture.pdf) for the pipeline datapa
 | `0x1000_0030` | | UART_RX: received byte |
 | `0x2000_0000` | | Matrix accelerator: CTRL, gather descriptors, A / B buffers, C results, INT8 results, bias / scale (register list at the top of `code/accel/matmul_accel.v`) |
 | `0x3000_0000` | | TFT display (SPI): CTRL, STATUS, CMD, DATA, PIXEL, PIXEL2, FILL (`code/io/tft_spi.v`) |
+| `0x4000_0000` | | PS/2 mouse: RX (32-byte FIFO), TX (commands to the mouse), STATUS (`code/io/ps2.v`) |
 
 ## Branch prediction results
 
@@ -251,13 +252,14 @@ Training, quantisation and the PC check: [`ml/mnist`](ml/mnist/README.md).
 <p align="center"><img src="docs/images/nn/demo_screens.png" alt="the three demo screens" width="100%"></p>
 
 `sw/programs/nn_demo` puts the accelerator on a 240x320 SPI display next to the board, in
-three modes chosen with the switches:
+four modes chosen with the switches:
 
 | Mode | What happens |
 |---|---|
 | **Digit** | A digit drawn with the mouse on the laptop (`sw/demo_tool.py`) is sent over the UART. The board recognises it twice, on the CPU alone and with the accelerator, and shows the answer, both times and the speedup (44.1 ms vs 0.75 ms, 58x). |
 | **Edge filter** | Four 3x3 Sobel filters (edges in four directions), ReLU and 2x2 max pooling on a 66x66 window that pans across a 96x96 picture, frame after frame. A switch moves the work between the CPU (42 ms per frame) and the layer engine (0.9 ms per frame, 46x), so the speed shows as smoothness. Any photo can be sent from the laptop. |
 | **Race** | The CPU and the accelerator classify the same 24 images. The accelerator's bar is full after 18 ms; the CPU's bar takes about a second to fill. |
+| **Draw** | A digit drawn on the TFT with a USB mouse plugged into the board. The board turns the 96x96 drawing into an MNIST-style 28x28 image itself (fitted into 20x20, centred by its centre of mass), recognises it on both, and sends the image and the answer to the laptop, which mirrors them. |
 
 Each screen checks that the CPU and the accelerator agree bit for bit and says so. The
 screens above are decoded from the SPI stream in simulation (`verif/tb_demo.v` models the
@@ -266,8 +268,11 @@ a different input: the picture's row stride is passed as the layer width, so eac
 engine commands on a window inside the picture, with no copying.
 
 The hardware for it: a memory-mapped SPI transmitter (`code/io/tft_spi.v`, 12.5 or 25 MHz)
-with a one-word holding register and a hardware fill, and data memory doubled to 32 KB
-(the demo holds the network, a 96x96 picture, the filter output and 12 test images).
+with a one-word holding register and a hardware fill; a PS/2 port (`code/io/ps2.v`) that
+receives into a 32-byte FIFO and sends commands to the mouse (the board's USB host chip turns
+a USB mouse into a PS/2 one); and data memory doubled to 32 KB (the demo holds the network, a
+96x96 picture or drawing, the filter output and 12 test images). `verif/tb_demo.v` also models
+the mouse: it answers the reset and enable commands and draws a 7.
 
 **Run it** (TFT wired to Pmod JB as in the table below):
 
@@ -279,7 +284,7 @@ python sw\demo_tool.py COM6                 (loads nn_demo, opens the drawing wi
 
 | Switch | Effect |
 |---|---|
-| `sw[2:1]` | mode: 00 digit, 01 edge filter, 10 race |
+| `sw[2:1]` | mode: 00 digit, 01 edge filter, 10 race, 11 draw (USB mouse in the board's USB port; left button draws, right button clears) |
 | `sw[3]` | edge filter on the CPU instead of the accelerator |
 | `sw[0]` | display clock 25 MHz instead of 12.5 MHz (smoother; flip back if the picture is garbled) |
 
@@ -452,7 +457,8 @@ Done:
 - [x] 128-step operand buffers (each conv2 patch fetched once): 36.4x, measured on the board
 - [x] Bias and scale on chip, results stored in the background: 40.4x, measured on the board
 - [x] Double buffering (fetch the next job while the array runs): 58.4x, measured on the board
-- [x] Live demo on a 2.4" SPI TFT: digit recognition, edge filter, CPU vs accelerator race
+- [x] Live demo on a 2.4" SPI TFT: digit recognition, edge filter, CPU vs accelerator race,
+      drawing on the TFT with a USB mouse (PS/2 port)
 
 ## Future work
 
@@ -468,8 +474,6 @@ about moving data:
       remaining time; without them the speedup cannot pass about 235x
 - [ ] **UVM for the gather and layer engines:** the UVM environment drives the accelerator the
       original way, so its code coverage is 53 %; sequences for the engines would close that gap
-- [ ] **Stand-alone digit input:** draw with a USB mouse plugged into the Basys 3 (PS/2 through
-      its USB host chip), or touch once a touch controller is fitted, instead of the laptop
 
 Other plans for the SoC:
 

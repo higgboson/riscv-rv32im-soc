@@ -23,7 +23,9 @@ module basys3_top #(
     input         RsRx,
     output        RsTx,
     // 2.4" SPI TFT on Pmod JB
-    output        tft_cs, tft_rst, tft_dc, tft_mosi, tft_sck, tft_led
+    output        tft_cs, tft_rst, tft_dc, tft_mosi, tft_sck, tft_led,
+    // USB mouse, turned into PS/2 by the board's USB host chip (open drain, pulled up)
+    inout         PS2Clk, PS2Data
 );
 
 // Clock
@@ -78,6 +80,7 @@ wire [19:0] hex;
 wire [31:0] tohost;
 wire        tohost_valid, loading;
 
+wire ps2_clk_oe, ps2_data_oe;                 // PS/2: 1 = pull the line low
 soc #(.CLK_HZ(CLK_HZ), .BAUD(115_200)) soc_i (
     .clk(cpu_clk), .reset(reset),
     .Ext_MemWrite(1'b0), .Ext_WriteData(32'b0), .Ext_DataAdr(32'b0),
@@ -87,8 +90,11 @@ soc #(.CLK_HZ(CLK_HZ), .BAUD(115_200)) soc_i (
     .uart_rx(RsRx), .uart_tx(RsTx),
     .tohost(tohost), .tohost_valid(tohost_valid), .loading(loading),
     .tft_cs(tft_cs), .tft_rst(tft_rst), .tft_dc(tft_dc), .tft_mosi(tft_mosi),
-    .tft_sck(tft_sck), .tft_led(tft_led)
+    .tft_sck(tft_sck), .tft_led(tft_led),
+    .ps2_clk_in(PS2Clk), .ps2_data_in(PS2Data), .ps2_clk_oe(ps2_clk_oe), .ps2_data_oe(ps2_data_oe)
 );
+assign PS2Clk  = ps2_clk_oe  ? 1'b0 : 1'bz;
+assign PS2Data = ps2_data_oe ? 1'b0 : 1'bz;
 
 // Status lights only take over LEDs 13-15 when there is something to report, so a
 // running program (like the demo) can use all 16

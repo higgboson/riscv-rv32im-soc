@@ -6,8 +6,10 @@
 //           that pans over a 96x96 picture, frame after frame, on the CPU or on the layer
 //           engine, with the frame rate and the time per frame
 //   race    the CPU and the accelerator classify the same 24 images; two progress bars
+//   draw    a digit drawn on the TFT with a USB mouse plugged into the board (code/io/ps2.v);
+//           recognised on both, the answer on the TFT and, with the 28x28 image, on the laptop
 //
-// Switches: sw[2:1] mode (00 digit, 01 filter, 10 race), sw[3] filter on the CPU instead of
+// Switches: sw[2:1] mode (00 digit, 01 filter, 10 race, 11 draw), sw[3] filter on the CPU instead of
 // the accelerator, sw[0] fast display clock (25 MHz instead of 12.5 MHz).
 // The laptop tool can also send a digit (mode digit) or a picture (mode filter) at any time.
 // The 7-segment display shows the last measured speedup (accelerator over CPU).
@@ -341,6 +343,242 @@ static void race_run(void)
     (void)ok_cpu;
 }
 
+// ---------------------------------------------------------------- draw mode (USB mouse)
+// The Basys 3's USB host chip turns a USB mouse into a PS/2 mouse (code/io/ps2.v).
+#define PS2_RX     (*(volatile uint32_t *)0x40000000)
+#define PS2_TX     (*(volatile uint32_t *)0x40000004)
+#define PS2_STATUS (*(volatile uint32_t *)0x40000008)
+
+#define PS2_MS 50000u                                               // PS/2 timeouts: real ms always
+#ifdef SIM
+#define MS 50u                                                      // simulation: short idle wait
+#else
+#define MS 50000u
+#endif
+
+static int ps2_get(uint32_t ms)
+{
+    uint32_t t0 = now();
+    while (!(PS2_STATUS & 1u))
+        if (now() - t0 > ms * PS2_MS) return -1;
+    int b = (int)(PS2_RX & 0xFFu);
+    PS2_RX = 0;                                                     // drop it from the FIFO
+    return b;
+}
+
+// send a command byte and wait for the mouse's 0xFA; 0 = done
+static int mouse_cmd(uint8_t c)
+{
+    PS2_STATUS = 0;                                                 // clear old error flags
+    PS2_TX = c;
+    uint32_t t0 = now();
+    while (PS2_STATUS & 2u)
+        if (now() - t0 > 100u * PS2_MS) return -1;
+    if (PS2_STATUS & 4u) return -1;                                 // no acknowledge
+    return ps2_get(100) == 0xFA ? 0 : -1;
+}
+
+static int mouse_init(void)
+{
+    while (ps2_get(0) >= 0) ;                                       // empty the FIFO
+    if (mouse_cmd(0xFF) < 0) return -1;                             // reset
+    if (ps2_get(1000) != 0xAA) return -1;                           // self-test passed
+    ps2_get(100);                                                   // device id 0x00
+    return mouse_cmd(0xF4);                                         // start sending movement
+}
+
+#define CANVAS 96                                                   // drawing, in pic[] (96x96)
+#define CV_X   24                                                   // on the TFT: 2x, 192x192
+#define CV_Y   24
+static int8_t *const canvas = pic;
+static int  m_ok = -1, m_x = 48 * 4, m_y = 48 * 4;                  // cursor, 1/4 canvas pixels
+static int  m_btn, m_ink, m_done, m_n;                              // buttons, ink, recognised
+static uint8_t m_pk[3];
+static uint32_t m_idle;
+static int  pic_is_canvas;                                          // the filter picture is gone
+static int8_t small[20 * 20];
+
+static void canvas_show(int x0, int y0, int x1, int y1)            // canvas pixels x0..x1, y0..y1
+{
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > CANVAS - 1) x1 = CANVAS - 1;
+    if (y1 > CANVAS - 1) y1 = CANVAS - 1;
+    if (x0 > x1 || y0 > y1) return;
+    tft_image(CV_X + 2 * x0, CV_Y + 2 * y0, canvas + y0 * CANVAS + x0, x1 - x0 + 1, y1 - y0 + 1, CANVAS, 2);
+}
+
+static void cursor_show(void)
+{
+    tft_fill(CV_X + 2 * (m_x >> 2) - 1, CV_Y + 2 * (m_y >> 2) - 1, 4, 4, C_RED);
+}
+
+static void cursor_hide(int x, int y)                               // redraw the canvas under it
+{
+    canvas_show((x >> 2) - 1, (y >> 2) - 1, (x >> 2) + 1, (y >> 2) + 1);
+}
+
+// a soft round brush (radius about 4 canvas pixels) at (x, y) in 1/4 pixels
+static void brush(int x, int y)
+{
+    int cx = x >> 2, cy = y >> 2;
+    for (int py = cy - 5; py <= cy + 5; py++)
+        for (int px = cx - 5; px <= cx + 5; px++) {
+            if (px < 0 || py < 0 || px >= CANVAS || py >= CANVAS) continue;
+            int dx = px * 4 + 2 - x, dy = py * 4 + 2 - y;
+            int d2 = dx * dx + dy * dy;                             // in 1/16 pixel^2
+            int v = d2 <= 12 * 12 ? 127 : d2 >= 18 * 18 ? 0 : 127 * (18 * 18 - d2) / (18 * 18 - 12 * 12);
+            if (v > canvas[py * CANVAS + px]) canvas[py * CANVAS + px] = (int8_t)v;
+        }
+}
+
+static void draw_screen(void)
+{
+    tft_fill(0, 0, TFT_W, TFT_H, C_BLACK);
+    header("Draw a digit with the mouse", C_BLUE);
+    tft_fill(CV_X - 2, CV_Y - 2, 196, 196, C_GREY);
+    for (int i = 0; i < CANVAS * CANVAS; i++) canvas[i] = 0;
+    pic_is_canvas = 1;
+    canvas_show(0, 0, CANVAS - 1, CANVAS - 1);
+    m_ink = 0;  m_done = 0;  m_n = 0;
+    if (m_ok != 0) m_ok = mouse_init();
+    if (m_ok != 0) {
+        tft_text(4, 230, "No mouse found. Plug a USB", 1, C_RED, C_BLACK);
+        tft_text(4, 246, "mouse into the board's USB", 1, C_RED, C_BLACK);
+        tft_text(4, 262, "port, then move a switch.", 1, C_RED, C_BLACK);
+        print_str("no mouse\n");
+        return;
+    }
+    tft_text(4, 300, "left: draw   right: clear", 1, C_GREY, C_BLACK);
+    cursor_show();
+}
+
+// MNIST-style 28x28: the ink fitted into 20x20 (area average), centred by its centre of mass
+static int canvas_to_mnist(void)
+{
+    int x0 = CANVAS, y0 = CANVAS, x1 = -1, y1 = -1;
+    for (int y = 0; y < CANVAS; y++)
+        for (int x = 0; x < CANVAS; x++)
+            if (canvas[y * CANVAS + x] > 8) {
+                if (x < x0) x0 = x;
+                if (x > x1) x1 = x;
+                if (y < y0) y0 = y;
+                if (y > y1) y1 = y;
+            }
+    if (x1 < 0) return 0;
+    int w = x1 - x0 + 1, h = y1 - y0 + 1, m = w > h ? w : h;
+    int tw = (w * 20 + m / 2) / m, th = (h * 20 + m / 2) / m;
+    if (tw < 1) tw = 1;
+    if (th < 1) th = 1;
+    int sum = 0, sx = 0, sy = 0;
+    for (int ty = 0; ty < th; ty++)
+        for (int tx = 0; tx < tw; tx++) {
+            int ya = y0 + ty * h / th, yb = y0 + (ty + 1) * h / th;
+            int xa = x0 + tx * w / tw, xb = x0 + (tx + 1) * w / tw;
+            if (yb <= ya) yb = ya + 1;
+            if (xb <= xa) xb = xa + 1;
+            int s = 0, n = 0;
+            for (int y = ya; y < yb; y++)
+                for (int x = xa; x < xb; x++) { s += canvas[y * CANVAS + x]; n++; }
+            int v = s / n;
+            small[ty * 20 + tx] = (int8_t)v;
+            sum += v;  sx += v * tx;  sy += v * ty;
+        }
+    int ox = 14 - (sx + sum / 2) / sum, oy = 14 - (sy + sum / 2) / sum;
+    for (int i = 0; i < 784; i++) digit_px[i] = 0;
+    for (int ty = 0; ty < th; ty++)
+        for (int tx = 0; tx < tw; tx++) {
+            int y = ty + oy, x = tx + ox;
+            if (x >= 0 && x < 28 && y >= 0 && y < 28) digit_px[y * 28 + x] = (uint8_t)(small[ty * 20 + tx] * 2);
+        }
+    return 1;
+}
+
+static void draw_recognise(void)
+{
+    if (!canvas_to_mnist()) return;
+    uint32_t t_cpu = infer(digit_px, 0);
+    int32_t s_cpu[10];
+    for (int i = 0; i < 10; i++) s_cpu[i] = scores[i];
+    uint32_t t_acc = infer(digit_px, 1);
+    int d = cnn_argmax(scores), same = 1;
+    for (int i = 0; i < 10; i++) same &= s_cpu[i] == scores[i];
+
+    tft_fill(0, 222, TFT_W, 98, C_BLACK);
+    time_bar(222, "CPU   ", t_cpu, 232, C_ORANGE);
+    time_bar(250, "ACCEL ", t_acc, (int)(232u * t_acc / t_cpu), C_BLUE);
+    int x = tft_text(4, 280, "It is ", 2, C_WHITE, C_BLACK);
+    tft_char(x, 280, (char)('0' + d), 2, C_GREEN, C_BLACK);
+    speedup_text(x + 32, 288, t_cpu, t_acc, 1);
+    tft_text(4, 306, same ? "CPU = accelerator, bit-exact" : "CPU and accelerator DIFFER  ",
+             1, same ? C_GREEN : C_RED, C_BLACK);
+    show_speedup(t_cpu, t_acc);
+
+    // the same to the laptop, with the 28x28 image the network saw
+    static const char hx[] = "0123456789abcdef";
+    print_str("draw "); print_dec(d);
+    print_str(" cpu "); print_dec(t_cpu / 50); print_str(" accel "); print_dec(t_acc / 50);
+    print_str(same ? " same img " : " differ img ");
+    for (int i = 0; i < 784; i++) { putchar_(hx[digit_px[i] >> 4]); putchar_(hx[digit_px[i] & 15]); }
+    putchar_('\n');
+}
+
+// mouse packets: [buttons + signs, dx, dy]; move the cursor, paint while the left button is down
+static void draw_poll(void)
+{
+    if (m_ok != 0) return;
+    int b;
+    while ((b = ps2_get(0)) >= 0) {
+        if (m_n == 0 && !(b & 8)) continue;                         // not a first byte: resync
+        m_pk[m_n++] = (uint8_t)b;
+        if (m_n < 3) continue;
+        m_n = 0;
+        int dx = m_pk[1] - ((m_pk[0] & 0x10) ? 256 : 0);
+        int dy = m_pk[2] - ((m_pk[0] & 0x20) ? 256 : 0);
+        int btn = m_pk[0] & 3;
+        int ox = m_x, oy = m_y;
+        m_x += dx * 2;  m_y -= dy * 2;                              // PS/2: y grows upwards
+        if (m_x < 0) m_x = 0;
+        if (m_y < 0) m_y = 0;
+        if (m_x > CANVAS * 4 - 1) m_x = CANVAS * 4 - 1;
+        if (m_y > CANVAS * 4 - 1) m_y = CANVAS * 4 - 1;
+        cursor_hide(ox, oy);
+
+        if ((btn & 2) && !(m_btn & 2)) {                            // right click: clear
+            for (int i = 0; i < CANVAS * CANVAS; i++) canvas[i] = 0;
+            canvas_show(0, 0, CANVAS - 1, CANVAS - 1);
+            tft_fill(0, 222, TFT_W, 76, C_BLACK);
+            m_ink = 0;  m_done = 0;
+        }
+        if (btn & 1) {
+            if (!(m_btn & 1) && m_done) {                           // a new digit: clean canvas
+                for (int i = 0; i < CANVAS * CANVAS; i++) canvas[i] = 0;
+                canvas_show(0, 0, CANVAS - 1, CANVAS - 1);
+                m_done = 0;
+                ox = m_x;  oy = m_y;
+            }
+            if (!(m_btn & 1)) { ox = m_x;  oy = m_y; }              // stroke starts here
+            int adx = m_x > ox ? m_x - ox : ox - m_x, ady = m_y > oy ? m_y - oy : oy - m_y;
+            int steps = (adx > ady ? adx : ady) / 4 + 1;
+            for (int s = 1; s <= steps; s++)
+                brush(ox + (m_x - ox) * s / steps, oy + (m_y - oy) * s / steps);
+            int ax = (ox < m_x ? ox : m_x) >> 2, bx = (ox > m_x ? ox : m_x) >> 2;
+            int ay = (oy < m_y ? oy : m_y) >> 2, by = (oy > m_y ? oy : m_y) >> 2;
+            canvas_show(ax - 5, ay - 5, bx + 5, by + 5);
+            m_ink = 1;
+            m_idle = now();
+        }
+        m_btn = btn;
+        cursor_show();
+    }
+    // 0.8 s after the last stroke (time for a second stroke, as for a 4 or a 7): recognise
+    if (m_ink && !m_done && !(m_btn & 1) && now() - m_idle > 800u * MS) {
+        draw_recognise();
+        m_done = 1;
+        cursor_show();
+    }
+}
+
 // ---------------------------------------------------------------- main loop
 int main(void)
 {
@@ -359,7 +597,6 @@ int main(void)
             pc_mode = -1;
         }
         int want = pc_mode >= 0 ? pc_mode : (int)((sw >> 1) & 3u);
-        if (want == 3) want = 0;
 
         // a command from the laptop
         int c = getchar_nb();
@@ -373,6 +610,7 @@ int main(void)
                 continue;
             }
             if (c == 'P' && read_bytes((uint8_t *)pic, PIC * PIC)) {
+                pic_is_canvas = 0;
                 for (int i = 0; i < PIC * PIC; i++) pic[i] = (int8_t)((uint8_t)pic[i] >> 1);
                 pc_mode = 1;  mode = -1;
                 print_str("picture received\n");
@@ -384,10 +622,12 @@ int main(void)
         if (want != mode) {
             mode = want;
             if (mode == 0) digit_screen();
-            if (mode == 1) filter_screen();
+            if (mode == 1) { if (pic_is_canvas) { default_picture(); pic_is_canvas = 0; } filter_screen(); }
+            if (mode == 3) draw_screen();
             if (mode == 2) race_t = 0;
         }
         if (mode == 1) filter_frame((sw >> 3) & 1u);
+        if (mode == 3) draw_poll();
         if (mode == 2 && (race_t == 0 || now() - race_t > 250000000u)) {   // again every 5 s
             race_run();
             race_t = now();

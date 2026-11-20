@@ -6,6 +6,8 @@
 #   - draw a digit with the mouse; 0.8 s after you let go it is sent to the board, which recognises
 #     it with the CPU alone and with the accelerator and shows both times on the TFT
 #   - "Send picture..." sends any photo (made grey and 96x96) for the edge-filter mode
+#   - draw mode (sw[2:1] = 11, a USB mouse in the board): what you draw on the TFT is mirrored
+#     on the right, as the 28x28 image the network saw, with its answer and both times
 # The board's messages appear at the bottom of the window.
 # Needs: pip install pyserial pillow   (tkinter comes with Python on Windows)
 
@@ -64,9 +66,10 @@ def no_loader_magic(data):
 
 
 class Board:
-    def __init__(self, port, on_text):
+    def __init__(self, port, on_text, on_draw):
         self.port = serial.Serial(port, 115200, timeout=0.05, write_timeout=5)
         self.on_text = on_text
+        self.on_draw = on_draw
         self.acked = threading.Event()
         self.lock = threading.Lock()
         threading.Thread(target=self.reader, daemon=True).start()
@@ -80,8 +83,12 @@ class Board:
             if b == ACK:
                 self.acked.set()
             elif b == b'\n':
-                self.on_text(line.decode('ascii', 'replace'))
+                text = line.decode('ascii', 'replace')
                 line = b''
+                if text.startswith('draw ') and ' img ' in text:
+                    self.on_draw(text)
+                else:
+                    self.on_text(text)
             else:
                 line += b
 
@@ -132,7 +139,31 @@ def main():
     def show(text):
         root.after(0, status.set, text)
 
-    board = Board(args.port, show)
+    mirror = tk.Canvas(root, width=CANVAS, height=CANVAS, bg='#202020')
+    mirror.grid(row=0, column=3, padx=8, pady=8)
+    mirror.create_text(CANVAS // 2, CANVAS // 2, fill='#888888', justify='center',
+                       text='Draw mode (sw[2:1] = 11):\nwhat the board saw\nappears here')
+
+    def show_draw(text):
+        # "draw <d> cpu <us> accel <us> same img <1568 hex digits>"
+        head, img = text.split(' img ', 1)
+        f = head.split()
+        try:
+            digit, cpu_us, acc_us = int(f[1]), int(f[3]), int(f[5])
+            px = bytes.fromhex(img.strip()[:1568])
+        except (ValueError, IndexError):
+            return
+        def update():
+            mirror.delete('all')
+            for i, v in enumerate(px):
+                x, y = (i % 28) * 10, (i // 28) * 10
+                mirror.create_rectangle(x, y, x + 10, y + 10, outline='', fill='#%02x%02x%02x' % (v, v, v))
+            status.set('Board (drawn on the TFT): it is a %d.  CPU %.2f ms, accelerator %.2f ms, '
+                       '%.1fx faster%s' % (digit, cpu_us / 1000, acc_us / 1000, cpu_us / max(acc_us, 1),
+                                           '' if f[6] == 'same' else '  (CPU and accelerator DIFFER)'))
+        root.after(0, update)
+
+    board = Board(args.port, show, show_draw)
 
     canvas = tk.Canvas(root, width=CANVAS, height=CANVAS, bg='black', cursor='pencil')
     canvas.grid(row=0, column=0, columnspan=3, padx=8, pady=8)
@@ -188,8 +219,9 @@ def main():
     tk.Button(root, text='Clear', width=12, command=clear).grid(row=1, column=0, pady=4)
     tk.Button(root, text='Send picture...', width=14, command=picture).grid(row=1, column=1)
     tk.Button(root, text='Quit', width=8, command=root.destroy).grid(row=1, column=2)
-    tk.Label(root, textvariable=status, wraplength=300, justify='left').grid(
-        row=2, column=0, columnspan=3, padx=8, pady=8, sticky='w')
+    tk.Label(root, text='the board\'s view (28x28)').grid(row=1, column=3)
+    tk.Label(root, textvariable=status, wraplength=600, justify='left').grid(
+        row=2, column=0, columnspan=4, padx=8, pady=8, sticky='w')
     root.mainloop()
 
 

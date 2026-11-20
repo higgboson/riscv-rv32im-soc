@@ -4,6 +4,7 @@
 // spell, and at the end. It can also play the laptop: send a digit over the UART.
 //
 // +SW=<hex>       board switches (default 0: digit mode)
+// +MOUSE          a PS/2 mouse: answers reset / enable like a real one, then draws a 7
 // +DIGIT=<file>   after the program starts, send 'D', wait for ACK, send 784 bytes (hex file)
 // +SNAP=<n>       write a snapshot every n cycles (default 4,000,000)
 // +MAXCYC=<n>     stop after n cycles (default 20,000,000)
@@ -19,6 +20,11 @@ reg  [15:0] sw;
 reg         rx = 1'b1;
 wire        uart_tx;
 wire        cs, rstn, dc, mosi, sck, bl;
+// PS/2 lines: open drain, pulled up; low when the host or the mouse pulls
+wire        h_clk_oe, h_dat_oe;
+reg         m_clk_low = 0, m_dat_low = 0;
+wire        ps2c = !(h_clk_oe | m_clk_low);
+wire        ps2d = !(h_dat_oe | m_dat_low);
 
 // 1 Mbaud: 50 clocks per bit
 soc #(.CLK_HZ(50_000_000), .BAUD(1_000_000)) uut (
@@ -28,8 +34,79 @@ soc #(.CLK_HZ(50_000_000), .BAUD(1_000_000)) uut (
     .PCW(), .Result(), .ALUResultW(), .WriteDataW(),
     .leds(), .hex(), .switches(sw), .buttons(4'b0000),
     .uart_rx(rx), .uart_tx(uart_tx), .tohost(), .tohost_valid(), .loading(),
-    .tft_cs(cs), .tft_rst(rstn), .tft_dc(dc), .tft_mosi(mosi), .tft_sck(sck), .tft_led(bl)
+    .tft_cs(cs), .tft_rst(rstn), .tft_dc(dc), .tft_mosi(mosi), .tft_sck(sck), .tft_led(bl),
+    .ps2_clk_in(ps2c), .ps2_data_in(ps2d), .ps2_clk_oe(h_clk_oe), .ps2_data_oe(h_dat_oe)
 );
+
+// ---------------------------------------------------------------- PS/2 mouse model
+// clock period 1000 cycles (50 kHz; real mice use 10..16.7 kHz, which only makes them slower)
+localparam integer PH = 500;
+reg mouse_on = 0;
+task m_send(input [7:0] b);                       // device -> host: start, 8 bits, odd parity, stop
+    reg [10:0] fr;
+    integer j;
+    begin
+        fr = {1'b1, ~^b, b, 1'b0};
+        wait (ps2c && !h_clk_oe);
+        for (j = 0; j < 11; j = j + 1) begin
+            m_dat_low = !fr[j];
+            repeat (PH / 2) @(posedge clk);
+            m_clk_low = 1;  repeat (PH) @(posedge clk);
+            m_clk_low = 0;  repeat (PH / 2) @(posedge clk);
+        end
+        m_dat_low = 0;
+        repeat (2 * PH) @(posedge clk);
+    end
+endtask
+task m_receive(output [7:0] b, output ok);         // host -> device, after the host's request
+    reg [9:0] bits;
+    integer j;
+    begin
+        for (j = 0; j < 10; j = j + 1) begin
+            m_clk_low = 1;  repeat (PH) @(posedge clk);
+            m_clk_low = 0;  repeat (PH / 2) @(posedge clk);
+            bits[j] = ps2d;                         // what the host set after this falling edge
+            repeat (PH / 2) @(posedge clk);
+        end
+        m_dat_low = 1;                              // acknowledge
+        m_clk_low = 1;  repeat (PH) @(posedge clk);
+        m_clk_low = 0;  repeat (PH) @(posedge clk);
+        m_dat_low = 0;
+        b  = bits[7:0];
+        ok = (^bits[8:0]) && bits[9];               // odd parity, stop bit
+    end
+endtask
+reg [7:0] m_cmd;
+reg       m_ok;
+// answer the host's commands: request = clock held low, then data low with the clock released
+always begin
+    wait (h_clk_oe);
+    wait (!h_clk_oe && h_dat_oe);
+    repeat (PH) @(posedge clk);
+    m_receive(m_cmd, m_ok);
+    $display("[%0t] mouse got command %02h%s", $time, m_cmd, m_ok ? "" : " (BAD parity/stop)");
+    m_send(8'hFA);
+    if (m_cmd == 8'hFF) begin m_send(8'hAA); m_send(8'h00); end
+    if (m_cmd == 8'hF4) mouse_on = 1;
+end
+// one movement packet: buttons, dx, dy (dy > 0 is up)
+task m_move(input integer dx, input integer dy, input left);
+    begin
+        m_send({2'b00, dy < 0, dx < 0, 1'b1, 1'b0, 1'b0, left});
+        m_send(dx[7:0]);
+        m_send(dy[7:0]);
+    end
+endtask
+integer mi;
+initial if ($test$plusargs("MOUSE")) begin
+    wait (mouse_on);
+    $display("[%0t] mouse enabled, drawing a 7", $time);
+    for (mi = 0; mi < 6; mi = mi + 1) m_move(-6, 8, 0);       // to the top left (cursor starts mid)
+    for (mi = 0; mi < 10; mi = mi + 1) m_move(8, 0, 1);       // top bar, left button held
+    for (mi = 0; mi < 14; mi = mi + 1) m_move(-3, -8, 1);     // down to the left
+    m_move(0, 0, 0);                                          // let go
+    $display("[%0t] mouse released the button", $time);
+end
 
 // ---------------------------------------------------------------- panel model
 reg [15:0] fb [0:240*320-1];

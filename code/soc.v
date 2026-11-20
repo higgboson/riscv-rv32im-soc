@@ -25,7 +25,10 @@ module soc #(
     output        tohost_valid,
     output        loading,              // the UART loader is receiving a program
     // 2.4" SPI TFT (code/io/tft_spi.v)
-    output        tft_cs, tft_rst, tft_dc, tft_mosi, tft_sck, tft_led
+    output        tft_cs, tft_rst, tft_dc, tft_mosi, tft_sck, tft_led,
+    // PS/2 mouse (code/io/ps2.v): line levels in, "pull low" out (open drain at the top level)
+    input         ps2_clk_in, ps2_data_in,
+    output        ps2_clk_oe, ps2_data_oe
 );
 
 wire [31:0] Instr, PC;
@@ -62,16 +65,17 @@ riscv_cpu rvcpu    (clk, core_reset, PC, Instr,
 instr_mem instrmem (clk, PC, Instr, ld_imem_we, ld_waddr[11:0], ld_wdata);
 
 // Top 4 address bits: 0x1 -> I/O, 0x2 -> matrix accelerator, 0x3 -> TFT display,
-// anything else -> data memory
+// 0x4 -> PS/2 mouse, anything else -> data memory
 wire is_mmio  = (DataAdr[31:28] == 4'h1);
 wire is_accel = (DataAdr[31:28] == 4'h2);
 wire is_tft   = (DataAdr[31:28] == 4'h3);
-wire [31:0] tft_rdata;
+wire is_ps2   = (DataAdr[31:28] == 4'h4);
+wire [31:0] tft_rdata, ps2_rdata;
 wire [31:0] accel_rdata, accel_mem_addr, accel_mem_data, accel_mem_wdata;
 wire [3:0]  accel_mem_we;
 
 // 32 KB of data memory (8K words, 0x0001_0000 .. 0x0001_7FFF)
-data_mem #(.WORDS(8192)) datamem (clk, MemWrite & ~is_mmio & ~is_accel & ~is_tft, Store, DataAdr, WriteData, dmem_rdata,
+data_mem #(.WORDS(8192)) datamem (clk, MemWrite & ~is_mmio & ~is_accel & ~is_tft & ~is_ps2, Store, DataAdr, WriteData, dmem_rdata,
                     accel_mem_addr, accel_mem_data, accel_mem_we, accel_mem_wdata);
 
 matmul_accel accel (
@@ -100,7 +104,14 @@ tft_spi tft (
     .tft_sck(tft_sck), .tft_led(tft_led)
 );
 
-assign ReadData  = is_mmio ? mmio_rdata : is_accel ? accel_rdata : is_tft ? tft_rdata : dmem_rdata;
+ps2 mouse (
+    .clk(clk), .reset(core_reset),
+    .wr_en(MemWrite & is_ps2), .addr(DataAdr), .wr_data(WriteData), .rd_data(ps2_rdata),
+    .ps2_clk_in(ps2_clk_in), .ps2_data_in(ps2_data_in), .clk_oe(ps2_clk_oe), .data_oe(ps2_data_oe)
+);
+
+assign ReadData  = is_mmio ? mmio_rdata : is_accel ? accel_rdata : is_tft ? tft_rdata :
+                   is_ps2 ? ps2_rdata : dmem_rdata;
 
 // While the CPU is in reset, data memory can be written from outside: by a testbench
 // (Ext_*, e-Yantra) or by the loader. CPU stores are blocked then, so a store that was

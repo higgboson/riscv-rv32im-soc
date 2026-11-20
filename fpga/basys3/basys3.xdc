@@ -87,3 +87,9 @@ set_property -dict { PACKAGE_PIN B16 IOSTANDARD LVCMOS33 } [get_ports tft_mosi]
 set_property -dict { PACKAGE_PIN A15 IOSTANDARD LVCMOS33 } [get_ports tft_sck]
 set_property -dict { PACKAGE_PIN A17 IOSTANDARD LVCMOS33 } [get_ports tft_led]
 set_false_path -to [get_ports {tft_cs tft_rst tft_dc tft_mosi tft_sck tft_led}]
+
+# USB mouse through the board's USB host chip (PS/2 clock and data, open drain with pull-ups)
+set_property -dict { PACKAGE_PIN C17 IOSTANDARD LVCMOS33 PULLUP true } [get_ports PS2Clk]
+set_property -dict { PACKAGE_PIN B17 IOSTANDARD LVCMOS33 PULLUP true } [get_ports PS2Data]
+set_false_path -from [get_ports {PS2Clk PS2Data}]
+set_false_path -to [get_ports {PS2Clk PS2Data}]
