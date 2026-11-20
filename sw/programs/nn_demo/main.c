@@ -181,7 +181,7 @@ static void digit_screen(void)
     tft_fill(0, 0, TFT_W, TFT_H, C_BLACK);
     header("Digit: draw on the laptop", C_BLUE);
     tft_text(8, 80, "Waiting for a digit", 1, C_GREY, C_BLACK);
-    tft_text(8, 96, "from sw/demo_tool.py", 1, C_GREY, C_BLACK);
+    tft_text(8, 96, "from the laptop tool", 1, C_GREY, C_BLACK);
 }
 
 static void digit_run(void)

@@ -11,7 +11,9 @@
 //   0x18  FILL    write: send the last PIXEL value N more times (N = bits 23:0), in hardware
 //
 // One word can wait while the previous one is being shifted out, so a program writes, checks
-// STATUS.full only when it has to, and keeps computing while the pixels go out. SPI mode 0,
+// STATUS.full only when it has to, and keeps computing while the pixels go out. Chip select
+// frames every word: it goes low half a clock before the first edge and high for a few cycles
+// after the last, so the panel starts counting bits afresh for each word. SPI mode 0,
 // MSB first, SCK = clk / (2 * HALF): 12.5 MHz from the 50 MHz CPU clock, or 25 MHz with the
 // fast bit (most panels manage it; the datasheets only promise about 10 MHz for writes).
 
@@ -55,11 +57,13 @@ module tft_spi #(
     reg  [5:0]  bits_left;
     reg         sh_dc;
     reg  [7:0]  div;
-    reg         cs_low;                       // chip select stays low once a transfer started
+    reg         pre;                          // extra half clock between CS low and the first edge
+    reg  [1:0]  gap;                          // CS high for a few cycles between words
 
     assign tft_mosi = sh[31];
     assign tft_dc   = sh_dc;
-    assign tft_cs   = ctrl[2] | ~cs_low;
+    assign tft_cs   = ctrl[2] | ~active;
+    wire   half_done = ctrl[3] || div == HALF - 1;
 
     wire full = h_valid || (fill_n != 24'd0);
     wire busy = full || active;
@@ -76,7 +80,7 @@ module tft_spi #(
     always @(posedge clk) begin
         if (reset) begin
             ctrl <= 4'b0000;  h_valid <= 1'b0;  fill_n <= 24'd0;  active <= 1'b0;
-            tft_sck <= 1'b0;  cs_low <= 1'b0;  sh_dc <= 1'b0;  sh <= 32'b0;  div <= 8'd0;
+            tft_sck <= 1'b0;  sh_dc <= 1'b0;  sh <= 32'b0;  div <= 8'd0;  pre <= 1'b0;  gap <= 2'd0;
             last_pix <= 16'd0;
         end else begin
             // CPU writes
@@ -95,22 +99,24 @@ module tft_spi #(
             // shifter: SCK low for HALF cycles (data stable), high for HALF cycles (sampled)
             if (!active) begin
                 tft_sck <= 1'b0;  div <= 8'd0;
-                if (h_valid) begin
-                    active <= 1'b1;  sh <= h_data;  bits_left <= h_bits;  sh_dc <= h_dc;
-                    h_valid <= 1'b0;  cs_low <= 1'b1;
+                if (gap != 2'd0) gap <= gap - 2'd1;
+                else if (h_valid) begin
+                    active <= 1'b1;  pre <= 1'b1;  sh <= h_data;  bits_left <= h_bits;  sh_dc <= h_dc;
+                    h_valid <= 1'b0;
                 end else if (fill_n != 24'd0) begin
-                    active <= 1'b1;  sh <= {last_pix, 16'b0};  bits_left <= 6'd16;  sh_dc <= 1'b1;
-                    fill_n <= fill_n - 24'd1;  cs_low <= 1'b1;
+                    active <= 1'b1;  pre <= 1'b1;  sh <= {last_pix, 16'b0};  bits_left <= 6'd16;
+                    sh_dc <= 1'b1;  fill_n <= fill_n - 24'd1;
                 end
-            end else if (!ctrl[3] && div != HALF - 1) begin
+            end else if (!half_done) begin
                 div <= div + 8'd1;
             end else begin
                 div <= 8'd0;
-                if (!tft_sck) tft_sck <= 1'b1;
+                if (pre) pre <= 1'b0;                 // CS has been low for half a clock: start
+                else if (!tft_sck) tft_sck <= 1'b1;
                 else begin
                     tft_sck <= 1'b0;
                     sh <= sh << 1;
-                    if (bits_left == 6'd1) active <= 1'b0;
+                    if (bits_left == 6'd1) begin active <= 1'b0;  gap <= 2'd3; end
                     bits_left <= bits_left - 6'd1;
                 end
             end
