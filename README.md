@@ -17,6 +17,13 @@ needs 1.06 s. 58.5x faster, same answers, 24/24 right.</i>
 | **Silicon** | RTL to GDSII on SkyWater 130 nm (LibreLane): 0.52 mm², DRC/LVS clean |
 | **Live demos** | Digit recognition (drawn on the laptop or with a mouse on the board), real-time edge filter, CPU vs accelerator race, Tetris, a Wolfenstein-style 3D raycaster; own SPI display and PS/2 mouse controllers |
 
+<p align="center">
+<a href="docs/images/arch/soc_architecture.png"><img src="docs/images/arch/soc_architecture.png" alt="SoC architecture, layer by layer"></a><br>
+<i>Figure 1: the whole system, layer by layer: host and software, board, SoC fabric and peripherals
+(with register maps), the 5-stage pipeline, memories. Drawn from the RTL by
+<a href="docs/figures">docs/figures</a>; click to zoom.</i>
+</p>
+
 A 32-bit RISC-V processor written in Verilog, with a classic 5-stage pipeline
 (Fetch, Decode, Execute, Memory, Writeback). It runs compiled C programs, passes the
 official RISC-V ISA tests for the base integer and multiply/divide instructions, and predicts
@@ -66,7 +73,7 @@ programs load over UART without rebuilding the FPGA). [How to run it](#live-demo
 <td width="50%"><img src="docs/images/nn/mnist_speedup.png" alt="speedup"><br><b>58.4x faster inference:</b> 44.1 ms per image on the CPU, 0.75 ms with the accelerator (about 1,320 images/s at 50 MHz). The first accelerator version was only 4.3x because the CPU spent its time moving data; each step after that came from measuring where the cycles went (gather engine 11.4x, layer engine 26.3x, deeper operand buffers 36.4x, parameters on chip 40.4x, double buffering 58.4x).</td>
 </tr>
 <tr>
-<td colspan="2"><img src="docs/images/nn/accelerator_dataflow.png" alt="accelerator data flow"><br><b>What I built for it:</b> a layer engine that runs a whole convolution layer from one command: it drives a gather engine that reads image patches and weights straight from data memory through the block RAM's second port (convolution turned into matrix multiplication, "im2col", in hardware), an output stage that adds the bias, rescales to 8 bits and applies ReLU, and a 2x2 max pool that writes the next layer's input back to memory. The CPU sends one command per layer and waits.</td>
+<td colspan="2"><img src="docs/images/arch/accelerator_architecture.png" alt="accelerator architecture"><br><b>What I built for it</b> (Figure 2, drawn from the RTL; click to zoom): a layer engine that runs a whole convolution layer from one command: it drives a gather engine that reads image patches and weights straight from data memory through the block RAM's second port (convolution turned into matrix multiplication, "im2col", in hardware), an output stage that adds the bias, rescales to 8 bits and applies ReLU, and a 2x2 max pool that writes the next layer's input back to memory. The CPU sends one command per layer and waits.</td>
 </tr>
 </table>
 
