@@ -567,15 +567,16 @@ The accelerator is now limited by memory bandwidth, not by its array:
 
 ### Ascon crypto engine as a peripheral
 
-- [ ] **Ascon-128 authenticated encryption on the SoC:** my Ascon core (NIST SP 800-232),
-      built and verified in its own repository, [ASCON-HW](https://github.com/higgboson/ASCON-HW),
-      attached to this SoC as a memory-mapped peripheral
-      - The core already passes its UVM regression on Cadence Xcelium (9/9 tests, results
-        checked against a C reference model over DPI-C, coverage in IMC)
-      - Next: a register wrapper (key, nonce, data in, data out, tag, start / busy / tag-OK),
-        later on the AXI4-Lite bus, and a C driver for the RISC-V core
-      - Measured on the board: cycles per block in hardware against the same Ascon in C on
-        the CPU, the way the CNN accelerator is measured
+- [ ] **Ascon on the board, next to the accelerator:** my Ascon core (NIST SP 800-232: AEAD128,
+      Hash256, XOF128, CXOF128), built and verified in its own repository,
+      [ascon-uvm-crypto-core](https://github.com/higgboson/ascon-uvm-crypto-core)
+      - Already done there: UVM on Cadence Xcelium with 100 % coverage closed in IMC, 4,228 of
+        4,228 official NIST test vectors, 6 of 6 planted bugs caught, and a memory-mapped
+        wrapper with a C driver on this SoC: encryption 31x and hashing 105x faster than the
+        official optimised C on the same CPU (RTL simulation)
+      - Next: move its registers off `0x3000_0000`, which the TFT controller now uses, then on
+        to the AXI4-Lite bus with the other peripherals
+      - Vivado timing and a run on the Basys 3, with the speedup measured on the board
       - A live demo on the TFT: encrypt a message, decrypt it, then flip one bit and watch the
         tag check reject it
 
