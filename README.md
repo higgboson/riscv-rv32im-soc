@@ -1,4 +1,21 @@
-# RV32IM 5-Stage Pipelined RISC-V CPU
+# RV32IM 5-Stage Pipelined RISC-V CPU with a CNN Accelerator
+
+My own RISC-V processor and neural-network accelerator in Verilog, running on a Basys 3 FPGA,
+verified with UVM on Cadence Xcelium and laid out on SkyWater 130 nm.
+
+<p align="center">
+<img src="docs/images/board/race.gif" width="520" alt="CPU against accelerator race on the board"><br>
+<i>Live on the board: my accelerator classifies 24 handwritten digits in 18 ms while my CPU alone
+needs 1.06 s. 58.5x faster, same answers, 24/24 right.</i>
+</p>
+
+| At a glance | |
+|---|---|
+| **CPU** | RV32IM, 5-stage pipeline with forwarding and branch prediction, 50 MHz on a Basys 3; passes all 48 official `rv32ui` / `rv32um` riscv-tests |
+| **Accelerator** | 4x4 INT8 systolic array + gather engine (im2col in hardware) + layer engine (one command per conv layer, pooling in hardware), double-buffered: **58.4x** on an MNIST CNN and **46x** on edge filtering, measured on the board, bit-exact against a Python golden model |
+| **Verification** | Two **UVM** environments on Cadence Xcelium: 10/10 core and 7/7 accelerator tests, 235/235 core functional bins, 100 % accelerator functional coverage, SVA, a C reference model over DPI-C, planted bugs caught |
+| **Silicon** | RTL to GDSII on SkyWater 130 nm (LibreLane): 0.52 mm², DRC/LVS clean |
+| **Live demos** | Digit recognition (drawn on the laptop or with a mouse on the board), real-time edge filter, CPU vs accelerator race, Tetris, a Wolfenstein-style 3D raycaster; own SPI display and PS/2 mouse controllers |
 
 A 32-bit RISC-V processor written in Verilog, with a classic 5-stage pipeline
 (Fetch, Decode, Execute, Memory, Writeback). It runs compiled C programs, passes the
@@ -19,7 +36,29 @@ Hardened into a **SkyWater 130 nm layout** (RTL to GDSII with LibreLane), and ve
 commit by commit against a C reference model over DPI-C, SVA, functional and code coverage in
 IMC), with planted bugs to prove the testbenches catch real failures.
 
+## Live on the board
+
+Frames from the demo video, all running on the Basys 3 at 50 MHz (switches pick the mode;
+programs load over UART without rebuilding the FPGA). [How to run it](#live-demo-on-a-24-tft)
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/board/demo_digit_accel.jpg" alt="digit recognised"><br><b>Digit recognition:</b> drawn on the laptop, recognised on the board twice: 44.1 ms on the CPU alone, 0.75 ms with the accelerator, identical scores.</td>
+<td width="50%"><img src="docs/images/board/demo_systolic.jpg" alt="accelerator"><br><b>The accelerator:</b> a 4x4 systolic array driven by a layer engine that runs a whole convolution layer from one command. Speedup on the 7-segment display.</td>
+</tr>
+<tr>
+<td><img src="docs/images/board/demo_edge_filter.jpg" alt="edge filter"><br><b>Real-time edge filter:</b> four 3x3 filters per frame, 0.9 ms on the accelerator vs 42 ms on the CPU (46x); one switch swaps them live.</td>
+<td><img src="docs/images/board/demo_mouse_draw.jpg" alt="mouse drawing"><br><b>Drawing with a mouse on the board:</b> my PS/2 controller reads the mouse; the board prepares the 28x28 image and recognises it; the laptop only mirrors it.</td>
+</tr>
+<tr>
+<td><img src="docs/images/board/demo_raycaster.jpg" alt="3D raycaster"><br><b>3D raycaster with ghouls:</b> 160 rays per frame in fixed point (no FPU), only changed pixels redrawn with hardware fills, 25 to 80 FPS.</td>
+<td><img src="docs/images/board/demo_tetris.jpg" alt="Tetris"><br><b>Tetris:</b> written in C for my CPU, score on the 7-segment display; buttons, keyboard or mouse.</td>
+</tr>
+</table>
+
 ## Highlights
+
+### The accelerator
 
 <table>
 <tr>
@@ -29,21 +68,35 @@ IMC), with planted bugs to prove the testbenches catch real failures.
 <tr>
 <td colspan="2"><img src="docs/images/nn/accelerator_dataflow.png" alt="accelerator data flow"><br><b>What I built for it:</b> a layer engine that runs a whole convolution layer from one command: it drives a gather engine that reads image patches and weights straight from data memory through the block RAM's second port (convolution turned into matrix multiplication, "im2col", in hardware), an output stage that adds the bias, rescales to 8 bits and applies ReLU, and a 2x2 max pool that writes the next layer's input back to memory. The CPU sends one command per layer and waits.</td>
 </tr>
+</table>
+
+### Verification with UVM (Cadence Xcelium, IMC)
+
+<table>
 <tr>
-<td width="50%"><img src="docs/images/asic/chip_full.png" alt="sky130 layout"><br><b>The core as a chip:</b> hardened on SkyWater 130 nm with LibreLane. 0.52 mm², about 18k cells, DRC/LVS clean, timing closed at 20 MHz in all corners. <a href="asic/riscv_cpu/README.md">Layout details</a></td>
-<td width="50%"><img src="docs/images/asic/chip_net_traced.png" alt="traced net"><br><b>Down to the transistors:</b> one signal traced through the layout, from a cell output on PMOS/NMOS diffusion, over metal 1 and a via, to the gates of two other cells.</td>
+<td width="50%"><img src="docs/images/uvm/core_regression.png" alt="UVM regression"><br><b>Core regression:</b> constrained-random programs, every register write and store checked against a C reference model over DPI-C. 10/10 core tests pass. <a href="verif/uvm/README.md">UVM details</a></td>
+<td width="50%"><img src="docs/images/uvm/core_imc_hierarchy.png" alt="IMC coverage"><br><b>Coverage closure in IMC:</b> 235/235 functional coverage bins, all pipeline assertions passing; code-coverage holes waived with design reasons.</td>
 </tr>
 <tr>
-<td><img src="docs/images/uvm/core_regression.png" alt="UVM regression"><br><b>UVM regression on Cadence Xcelium:</b> constrained-random programs, every register write and store checked against a C reference model. 10/10 core and 7/7 accelerator tests pass. <a href="verif/uvm/README.md">UVM details</a></td>
-<td><img src="docs/images/uvm/core_imc_hierarchy.png" alt="IMC coverage"><br><b>Coverage closure in IMC:</b> 235/235 functional coverage bins, all pipeline assertions passing; code-coverage holes waived with design reasons.</td>
+<td><img src="docs/images/uvm/accel_regression.png" alt="accelerator regression"><br><b>Accelerator environment:</b> its own UVM testbench; every 4x4 result tile is checked against a reference model and every run must take exactly K + 6 cycles. 7/7 tests pass.</td>
+<td><img src="docs/images/uvm/accel_imc_overview.png" alt="accelerator coverage"><br><b>Accelerator coverage:</b> cross coverage of K x clear, the extreme INT8 products and the result ranges: 100 % functional coverage, 10/10 SVA assertions passing.</td>
 </tr>
 <tr>
 <td><img src="docs/images/uvm/core_bug_injection_errors.png" alt="bug caught"><br><b>The testbench catches real bugs:</b> a load-use stall broken on purpose gives 889 mismatches and TEST FAILED.</td>
 <td><img src="docs/images/uvm/core_wave_loaduse_mispredict.png" alt="waveform"><br><b>Pipeline in SimVision:</b> a load-use stall (one bubble) and two branch mispredicts flushing Execute.</td>
 </tr>
+</table>
+
+### Chip layout and FPGA
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/asic/chip_full.png" alt="sky130 layout"><br><b>The core as a chip:</b> hardened on SkyWater 130 nm with LibreLane. 0.52 mm², about 18k cells, DRC/LVS clean, timing closed at 20 MHz in all corners. <a href="asic/riscv_cpu/README.md">Layout details</a></td>
+<td width="50%"><img src="docs/images/asic/chip_net_traced.png" alt="traced net"><br><b>Down to the transistors:</b> one signal traced through the layout, from a cell output on PMOS/NMOS diffusion, over metal 1 and a via, to the gates of two other cells.</td>
+</tr>
 <tr>
 <td><img src="docs/images/basys3_demo.gif" alt="Basys 3"><br><b>Running on a Basys 3 FPGA:</b> benchmarks over UART, switches and LEDs, cycle count on the display.</td>
-<td><img src="docs/images/uvm/accel_imc_overview.png" alt="accelerator coverage"><br><b>Accelerator verified in UVM:</b> its own environment with cross coverage and SVA on the K+6 cycle run time. After the CNN upgrades: 7/7 tests pass, 100% functional coverage, 10/10 assertions.</td>
+<td><img src="docs/images/board/demo_board.jpg" alt="the board"><br><b>The whole setup:</b> Basys 3, 2.4" SPI TFT and a USB mouse on the board's PS/2 port.</td>
 </tr>
 </table>
 
