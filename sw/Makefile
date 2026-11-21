@@ -44,7 +44,7 @@ sim: $(OUT)/imem.hex
 
 # Prebuilt programs, kept in git so the board can be used without a RISC-V compiler
 # (sw/load.py and fpga/basys3/build.tcl read them from sw/prebuilt/)
-PREBUILT = hello bench demo matmul mnist nn_demo tetris sort
+PREBUILT = hello bench demo matmul mnist nn_demo tetris sort raycast
 prebuilt:
 	for p in $(PREBUILT); do \
 	    $(MAKE) -s PROG=$$p && mkdir -p prebuilt/$$p && cp build/$$p/*.hex prebuilt/$$p/ ; \

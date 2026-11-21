@@ -1,5 +1,6 @@
 // tb_demo.v - runs sw/programs/nn_demo with a model of the 2.4" TFT: the SPI stream is decoded
-// the way the panel does it (column / row window, then RGB565 pixels) into a 240x320 picture,
+// the way the panel does it (column / row window, then RGB565 pixels) into a 240x320 picture
+// (320x240 once the program turns the panel to landscape with MADCTL),
 // written as a PPM file whenever the program asks the panel for a new window after a quiet
 // spell, and at the end. It can also play the laptop: send a digit over the UART.
 //
@@ -115,6 +116,7 @@ reg [15:0] fb [0:240*320-1];
 reg [7:0]  cur, cmd;
 integer    nb = 0, argn = 0, xs, xe, ys, ye, px, py, hi, pixbytes = 0, k;
 reg [7:0]  hib;
+reg        mv = 0;                              // MADCTL bit 5: rows and columns swapped (landscape)
 always @(posedge sck) if (!cs) begin
     cur = {cur[6:0], mosi};
     nb = nb + 1;
@@ -125,10 +127,12 @@ always @(posedge sck) if (!cs) begin
             case (cmd)
                 8'h2A: begin case (argn) 0: xs = cur << 8; 1: xs = xs | cur; 2: xe = cur << 8; 3: xe = xe | cur; endcase end
                 8'h2B: begin case (argn) 0: ys = cur << 8; 1: ys = ys | cur; 2: ye = cur << 8; 3: ye = ye | cur; endcase end
+                8'h36: if (argn == 0) mv = cur[5];
                 8'h2C: begin
                     if (hi) hib = cur;
                     else begin
-                        if (px < 240 && py < 320) fb[py * 240 + px] = {hib, cur};
+                        if (!mv && px < 240 && py < 320) fb[py * 240 + px] = {hib, cur};
+                        if (mv && px < 320 && py < 240) fb[py * 320 + px] = {hib, cur};
                         if (px == xe) begin px = xs; py = py + 1; end else px = px + 1;
                         pixbytes = pixbytes + 2;
                     end
@@ -149,7 +153,8 @@ task snapshot;
     begin
         $sformat(name, "screen_%0d.ppm", snap_n);
         f = $fopen(name, "w");
-        $fwrite(f, "P3\n240 320\n255\n");
+        if (mv) $fwrite(f, "P3\n320 240\n255\n");
+        else    $fwrite(f, "P3\n240 320\n255\n");
         for (i = 0; i < 240 * 320; i = i + 1) begin
             p = fb[i];
             $fwrite(f, "%0d %0d %0d\n", {p[15:11], 3'b0}, {p[10:5], 2'b0}, {p[4:0], 3'b0});
