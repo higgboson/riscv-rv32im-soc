@@ -249,6 +249,7 @@ static void walk(fx mx, fx my)                          // x and y separately: s
 #define PS2_STATUS (*(volatile uint32_t *)0x40000008)
 static int m_ok, m_n, m_btn;
 static uint8_t m_pk[3];
+static uint32_t m_last;                                 // when the last mouse byte came
 
 static int ps2_get(uint32_t ms)
 {
@@ -282,7 +283,13 @@ static int mouse_poll(void)                             // sideways movement sin
 {
     int pk, mdx = 0;
     while (m_ok && (pk = ps2_get(0)) >= 0) {
-        if (m_n == 0 && !(pk & 8)) continue;            // resync on the first byte's bit 3
+        // a packet's 3 bytes come about 1 ms apart and packets at least 10 ms apart, so a gap
+        // of 4 ms starts a new packet: once out of step, a movement byte read as the button
+        // byte would leave the buttons stuck "held"
+        uint32_t t = now();
+        if (t - m_last > 4u * 50000u) m_n = 0;
+        m_last = t;
+        if (m_n == 0 && (!(pk & 8) || (pk & 0xC0))) continue;  // bit 3 set, no overflow bits
         m_pk[m_n++] = (uint8_t)pk;
         if (m_n < 3) continue;
         m_n = 0;
@@ -354,7 +361,9 @@ int main(void)
         }
         int held[NK];
         for (int k = 0; k < NK; k++) held[k] = (int32_t)(until[k] - t) > 0;
-        int fwd  = (held[K_FWD] || (b & 1u) || (m_btn & 1)) - (held[K_BACK] || (b & 8u) || (m_btn & 2));
+        // keys and board buttons first; the mouse buttons walk only when neither is used
+        int fwd  = (held[K_FWD] || (b & 1u)) - (held[K_BACK] || (b & 8u));
+        if (!fwd) fwd = (m_btn == 1) - (m_btn == 2);
         int turn = (held[K_RIGHT] || (b & 4u)) - (held[K_LEFT] || (b & 2u));
         int strafe = held[K_SR] - held[K_SL];
 
