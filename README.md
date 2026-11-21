@@ -529,8 +529,33 @@ Done:
 
 ## Future work
 
-The accelerator is now limited by memory bandwidth, not by its array, so the next steps are
-about moving data:
+Roughly in the order I plan to build them. Each block is RTL in Verilog / SystemVerilog with
+its own testbench, and is not merged until the existing tests and board demos still pass.
+
+### Core and SoC architecture
+
+- [ ] **Interrupts and CSRs (Zicsr, machine mode):** `mstatus`, `mtvec`, `mepc`, `mcause`,
+      `ecall` / `mret`, exceptions for illegal instructions and misaligned accesses, a machine
+      timer and external interrupts (UART, PS/2), with precise traps in the 5-stage pipeline;
+      proven by the official `rv32mi` riscv-tests
+- [ ] **AXI4-Lite interconnect:** replace the plain address decoder with an AXI4-Lite bus;
+      the UART, timers, TFT, PS/2 and accelerator become AXI slaves, verified with a UVM
+      AXI agent and SVA protocol checks
+- [ ] **Floating-point unit (RV32F):** 32 float registers, add / subtract / multiply with
+      IEEE-754 rounding, compare, int-float conversion, multi-cycle divide and square root;
+      checked against a reference model with random and corner-case operands (NaN, infinity,
+      denormals) and the official `rv32uf` tests, with the speedup over GCC's soft-float measured
+      on the board
+- [ ] **DMA engine:** moves data between memory, the accelerator and the TFT while the CPU
+      keeps running
+- [ ] **Instruction cache in front of the QSPI flash:** run programs larger than 16 KB straight
+      from flash, and boot a program at power-up together with the bitstream
+- [ ] **Two-stage multiplier** (or ALU / PC+4 selected in Memory) to shorten the critical path,
+      then re-run the sky130 flow for a higher clock
+
+### Accelerator
+
+The accelerator is now limited by memory bandwidth, not by its array:
 
 - [ ] **Line buffer:** keep three input rows on chip and build the 3x3 patches from them, so each
       input byte is read from memory once instead of up to 9 times (how CNN accelerators
@@ -539,27 +564,35 @@ about moving data:
       it: 64 multiply-adds per cycle instead of 16
 - [ ] **Fully connected layer and input copy on the accelerator:** together a quarter of the
       remaining time; without them the speedup cannot pass about 235x
+
+### Ascon crypto engine as a peripheral
+
+- [ ] **Ascon-128 authenticated encryption on the SoC:** my Ascon core (NIST SP 800-232),
+      built and verified in its own repository, [ASCON-HW](https://github.com/higgboson/ASCON-HW),
+      attached to this SoC as a memory-mapped peripheral
+      - The core already passes its UVM regression on Cadence Xcelium (9/9 tests, results
+        checked against a C reference model over DPI-C, coverage in IMC)
+      - Next: a register wrapper (key, nonce, data in, data out, tag, start / busy / tag-OK),
+        later on the AXI4-Lite bus, and a C driver for the RISC-V core
+      - Measured on the board: cycles per block in hardware against the same Ascon in C on
+        the CPU, the way the CNN accelerator is measured
+      - A live demo on the TFT: encrypt a message, decrypt it, then flip one bit and watch the
+        tag check reject it
+
+### Verification
+
 - [ ] **UVM for the gather and layer engines:** the UVM environment drives the accelerator the
       original way, so its code coverage is 53 %; sequences for the engines would close that gap
+- [ ] **riscv-dv** random instruction streams on the core, compared against the reference model
+- [ ] **Formal verification:** SymbiYosys on the accelerator and the gather engine, riscv-formal
+      on the core
+- [ ] **GitHub Actions:** run the Verilator UVM tests and the riscv-tests on every push
 
-- [ ] **A small operating system of my own:** first the privileged hardware the core lacks
-      (CSRs, `ecall` / `mret`, exceptions, a machine timer interrupt, with precise traps in the
-      5-stage pipeline, checked by the `rv32mi` riscv-tests); then a PS/2 keyboard and more
-      memory; then a kernel with system calls, a timer-driven round-robin scheduler and context
-      switching, and a shell on the TFT that runs the demos as processes side by side. (Linux is
-      out of reach: it needs an MMU and megabytes of RAM; the Basys 3 has about 225 KB of block
-      RAM and no external memory.)
+### Peripherals and software
 
-Other plans for the SoC:
-
-- [ ] **Interrupts and CSRs:** machine mode, timer interrupt, traps (ecall, illegal instruction),
-      official `rv32mi` tests
-- [ ] **Two-stage multiplier** (or ALU / PC+4 selected in Memory) to shorten the critical path,
-      then re-run the sky130 flow for a higher clock
-- [ ] **Formal verification:** SymbiYosys on the accelerator and gather engine, riscv-formal on the core
-- [ ] **Instruction cache in front of the QSPI flash:** run code straight from flash
-- [ ] **riscv-dv** random instruction tests on the core
-- [ ] **Games:** Snake / Tetris in the UART terminal, then on the TFT display or a VGA
-      framebuffer; DOOM as a stretch goal (needs more memory and a faster core)
-- [ ] Bitstream saved to the Basys 3 flash, so the demo starts at power-up
-- [ ] GitHub Actions: run the Verilator UVM tests and riscv-tests on every push
+- [ ] **VGA output** (640x480) on the Basys 3's VGA port, as a second display
+- [ ] **PS/2 keyboard:** scan codes and the Num Lock LED, next to the mouse
+- [ ] **A small operating system of my own,** once the interrupts are in: a kernel with system
+      calls, a timer-driven round-robin scheduler and context switching, and a shell on the TFT
+      that runs the demos as processes side by side. (Linux is out of reach: it needs an MMU and
+      megabytes of RAM; the Basys 3 has about 225 KB of block RAM and no external memory.)
