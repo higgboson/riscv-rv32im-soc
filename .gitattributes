@@ -1,18 +1,17 @@
-# Language statistics: the hardware (Verilog / SystemVerilog) is what this repository is about.
+# Language statistics: the bar shows the hardware (Verilog) and its verification (SystemVerilog
+# UVM, with its C reference model). The software that runs on the SoC (sw/) and the network
+# training scripts (ml/) stay in the repository but are not counted.
 
-# Generated data, written by scripts in ml/ (network weights, test images) - not hand-written code
+# Generated data, written by scripts in ml/ - not hand-written code
 sw/programs/mnist/weights.c          linguist-generated=true
 sw/programs/mnist/test_images.c      linguist-generated=true
 sw/programs/nn_demo/race_images.c    linguist-generated=true
 sw/programs/raycast/sintab.h         linguist-generated=true
 sw/prebuilt/**                       linguist-generated=true
 
-# Games and demo apps that run on the SoC: kept in the repository, left out of the language bar
-sw/programs/raycast/**               linguist-detectable=false
-sw/programs/tetris/**                linguist-detectable=false
-sw/programs/sort/**                  linguist-detectable=false
-sw/programs/nn_demo/**               linguist-detectable=false
-sw/programs/demo/**                  linguist-detectable=false
+# Software for the SoC (C programs, games, demos) and training scripts: not counted
+sw/**                                linguist-detectable=false
+ml/**                                linguist-detectable=false
 
 # .v is Verilog here (GitHub can mistake it for Coq or V)
 *.v                                  linguist-language=Verilog
