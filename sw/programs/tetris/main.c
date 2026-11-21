@@ -113,10 +113,13 @@ static void draw_piece(int p, int r, int x, int y, int c)
         if (cell_of(p, r, i) && y + (i >> 2) >= 0) draw_cell(x + (i & 3), y + (i >> 2), c);
 }
 
+// the whole well: clear it (cells and the 1-pixel gaps between them), then the filled cells
 static void draw_well(void)
 {
+    tft_fill(WX, WY, W * CELL, H * CELL, C_BLACK);
     for (int y = 0; y < H; y++)
-        for (int x = 0; x < W; x++) draw_cell(x, y, well[y][x]);
+        for (int x = 0; x < W; x++)
+            if (well[y][x]) draw_cell(x, y, well[y][x]);
 }
 
 static void draw_next(void)
@@ -226,8 +229,9 @@ static void lock_piece(void)
         if (k == W && n < 4) full[n++] = y;
     }
     if (n) {
-        for (int i = 0; i < n; i++)                     // flash the full rows
-            tft_fill(WX, WY + full[i] * CELL, W * CELL - 1, CELL - 1, C_WHITE);
+        for (int i = 0; i < n; i++)                     // flash the full rows (the cells only)
+            for (int x = 0; x < W; x++)
+                tft_fill(WX + x * CELL, WY + full[i] * CELL, CELL - 1, CELL - 1, C_WHITE);
         uint32_t t0 = now();
         while (now() - t0 < 120u * MS) ;
         for (int i = 0; i < n; i++)                     // remove them, top to bottom
