@@ -302,9 +302,9 @@ to the program (arrow keys arrive as w / a / s / d).
 |---|---|
 | `tetris` | Tetris: 10x20 well, 7-bag randomiser, ghost piece, levels and scoring; played with the board buttons (L / R move, U rotates, D drops faster), the laptop keyboard (arrows, space drops, p pauses) or the board's USB mouse (slide to move, left click rotates, right click drops). Score on the 7-segment display. |
 | `sort` | An animated bottom-up merge sort of 120 bars on the TFT, then a benchmark: 2,000 random numbers by merge sort (n log n) and insertion sort (n^2), timed with the cycle counter, results checked identical. |
-| `raycast` | A Wolfenstein 3D style first-person maze in landscape (320x240): 160 rays per frame walk the 24x24 grid in Q16 fixed point (DDA), walls fade with distance, a minimap fills in as you explore; find the green exit against the clock. Each screen column is three hardware FILLs, and only what changed since the last frame is sent. Board buttons (U / D walk, L / R turn), keys (w / s walk, a / d turn, q / e sidestep, o turns the picture if it shows upside down) or the USB mouse (slide to look, hold left / right button to walk). FPS shown on screen. |
+| `raycast` | A Wolfenstein 3D style first-person maze in landscape (320x240) with ten ghouls: 160 rays per frame walk the 24x24 grid in Q16 fixed point (DDA), walls fade with distance, a minimap fills in as you explore. Ghouls wake when they see you, chase and claw (100 HP); two shots kill one. Find the green exit against the clock. Each screen column is a few hardware FILLs and only what changed is sent; columns with a ghoul are put together in memory and sent once (no flicker), and the scene stops above the gun so it never needs redrawing. Board buttons (U / D walk, L / R turn, L+R shoot), keys (w / s walk, a / d turn, q / e sidestep, space shoots, o turns the picture if it shows upside down) or the USB mouse (slide to look, left click shoots, hold right to walk). FPS shown on screen. |
 
-![The raycaster, simulated](docs/images/nn/raycast.png)
+![The raycaster with a ghoul, simulated](docs/images/nn/raycast.png)
 
 ## Verification
 
